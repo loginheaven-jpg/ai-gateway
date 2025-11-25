@@ -40,5 +40,5 @@ class ChatGPTService(AIService):
                 "input_tokens": response.usage.prompt_tokens,
                 "output_tokens": response.usage.completion_tokens
             },
-            "provider": "chatgpt"
+            "provider": "openai"
         }

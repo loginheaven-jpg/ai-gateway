@@ -6,8 +6,8 @@ from .base import AIService
 class GeminiService(AIService):
     """Gemini (Google) AI Service - Stateless Implementation"""
 
-    def __init__(self, api_key: str, model: str):
-        super().__init__(api_key, model)
+    def __init__(self, api_key: str, model: str, base_url: str = None):
+        super().__init__(api_key, model, base_url)
         genai.configure(api_key=self.api_key)
 
     async def chat(
