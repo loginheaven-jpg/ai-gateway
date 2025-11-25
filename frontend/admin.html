@@ -74,6 +74,48 @@
                 </div>
             </div>
         </div>
+
+        <!-- Batch Test Section -->
+        <div class="card mt-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Batch Test (Multi-Provider)</h5>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-secondary" onclick="selectAllProviders()">Select All</button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="deselectAllProviders()">Deselect All</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-10">
+                        <label class="form-label">Test Message</label>
+                        <input type="text" class="form-control" id="batch-test-message" value="Hello! Please respond briefly with your model name.">
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button class="btn btn-info w-100" id="batch-test-btn" onclick="batchTest()">Batch Test</button>
+                    </div>
+                </div>
+                <div class="small text-muted mb-3">
+                    Select providers using checkboxes above, then click "Batch Test" to test all selected providers simultaneously.
+                </div>
+                <div id="batch-test-results" style="display: none;">
+                    <h6>Results:</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width: 15%;">Provider</th>
+                                    <th style="width: 10%;">Status</th>
+                                    <th style="width: 10%;">Time</th>
+                                    <th style="width: 15%;">Model</th>
+                                    <th>Response</th>
+                                </tr>
+                            </thead>
+                            <tbody id="batch-results-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Edit Modal -->
@@ -142,6 +184,7 @@
                 for (const [id, provider] of Object.entries(data.providers)) {
                     const isDefault = id === data.default_provider;
                     const cardClass = isDefault ? 'default' : (provider.enabled ? 'enabled' : 'disabled');
+                    const canTest = provider.enabled && provider.api_key;
 
                     const docsUrl = PROVIDER_DOCS[id] || '#';
                     container.innerHTML += `
@@ -149,7 +192,10 @@
                             <div class="card provider-card ${cardClass}">
                                 <div class="card-body">
                                     <div class="d-flex justify-content-between align-items-start mb-2">
-                                        <h5 class="card-title mb-0">${provider.name}</h5>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <input type="checkbox" class="form-check-input provider-checkbox" value="${id}" ${canTest ? '' : 'disabled'} title="${canTest ? 'Select for batch test' : 'Enable and set API key first'}">
+                                            <h5 class="card-title mb-0">${provider.name}</h5>
+                                        </div>
                                         ${isDefault ? '<span class="badge badge-default">Default</span>' : ''}
                                     </div>
                                     <p class="card-text small text-muted mb-2">
@@ -368,6 +414,81 @@
             } finally {
                 btn.disabled = false;
                 btn.textContent = 'Test';
+            }
+        }
+
+        function selectAllProviders() {
+            document.querySelectorAll('.provider-checkbox:not(:disabled)').forEach(cb => cb.checked = true);
+        }
+
+        function deselectAllProviders() {
+            document.querySelectorAll('.provider-checkbox').forEach(cb => cb.checked = false);
+        }
+
+        async function batchTest() {
+            const checkboxes = document.querySelectorAll('.provider-checkbox:checked');
+            const providers = Array.from(checkboxes).map(cb => cb.value);
+
+            if (providers.length === 0) {
+                alert('Please select at least one provider to test');
+                return;
+            }
+
+            const btn = document.getElementById('batch-test-btn');
+            const resultsDiv = document.getElementById('batch-test-results');
+            const tbody = document.getElementById('batch-results-body');
+            const message = document.getElementById('batch-test-message').value;
+
+            btn.disabled = true;
+            btn.textContent = `Testing ${providers.length} providers...`;
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center">Testing in progress...</td></tr>';
+            resultsDiv.style.display = 'block';
+
+            try {
+                const response = await fetch(`${API_BASE}/api/ai/batch-chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        providers: providers,
+                        test_message: message
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Batch test failed');
+                }
+
+                // Display results
+                tbody.innerHTML = data.results.map(r => `
+                    <tr class="${r.success ? 'table-success' : 'table-danger'}">
+                        <td><strong>${r.provider}</strong></td>
+                        <td>${r.success ? '<span class="text-success">OK</span>' : '<span class="text-danger">FAIL</span>'}</td>
+                        <td>${r.elapsed_ms}ms</td>
+                        <td><small>${r.model || '-'}</small></td>
+                        <td style="max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${r.success ? r.response : r.error}">
+                            ${r.success ? r.response : `<span class="text-danger">${r.error}</span>`}
+                        </td>
+                    </tr>
+                `).join('');
+
+                // Add summary
+                const successCount = data.results.filter(r => r.success).length;
+                const avgTime = Math.round(data.results.reduce((sum, r) => sum + r.elapsed_ms, 0) / data.results.length);
+                tbody.innerHTML += `
+                    <tr class="table-light">
+                        <td colspan="2"><strong>Summary</strong></td>
+                        <td><strong>${avgTime}ms avg</strong></td>
+                        <td colspan="2"><strong>${successCount}/${data.results.length} succeeded</strong></td>
+                    </tr>
+                `;
+
+            } catch (error) {
+                tbody.innerHTML = `<tr class="table-danger"><td colspan="5">Error: ${error.message}</td></tr>`;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Batch Test';
             }
         }
 

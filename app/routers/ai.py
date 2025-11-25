@@ -1,6 +1,8 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
+import asyncio
+import time
 
 from ..config import load_config, get_provider
 from ..services import (
@@ -19,6 +21,13 @@ class ChatRequest(BaseModel):
     messages: List[Dict[str, str]]
     system_prompt: Optional[str] = None
     max_tokens: int = 4096
+    temperature: float = 0.7
+
+
+class BatchChatRequest(BaseModel):
+    providers: List[str]
+    test_message: str = "Hello, please respond with a brief greeting."
+    max_tokens: int = 100
     temperature: float = 0.7
 
 
@@ -110,3 +119,50 @@ async def list_providers():
         })
 
     return {"providers": providers, "default": config.default_provider}
+
+
+@router.post("/batch-chat")
+async def batch_chat(request: BatchChatRequest):
+    """
+    Send chat requests to multiple AI providers simultaneously.
+    Returns results from all providers with timing information.
+    """
+    async def test_provider(provider_id: str):
+        start_time = time.time()
+        try:
+            service = get_ai_service(provider_id)
+            result = await service.chat(
+                messages=[{"role": "user", "content": request.test_message}],
+                max_tokens=request.max_tokens,
+                temperature=request.temperature
+            )
+            elapsed = time.time() - start_time
+            return {
+                "provider": provider_id,
+                "success": True,
+                "response": result["content"][:500] if len(result["content"]) > 500 else result["content"],
+                "model": result.get("model", ""),
+                "elapsed_ms": int(elapsed * 1000)
+            }
+        except HTTPException as e:
+            elapsed = time.time() - start_time
+            return {
+                "provider": provider_id,
+                "success": False,
+                "error": e.detail,
+                "elapsed_ms": int(elapsed * 1000)
+            }
+        except Exception as e:
+            elapsed = time.time() - start_time
+            return {
+                "provider": provider_id,
+                "success": False,
+                "error": str(e),
+                "elapsed_ms": int(elapsed * 1000)
+            }
+
+    # Execute all provider tests concurrently
+    tasks = [test_provider(p) for p in request.providers]
+    results = await asyncio.gather(*tasks)
+
+    return {"results": results}
