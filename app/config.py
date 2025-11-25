@@ -83,8 +83,8 @@ def _get_default_providers():
         "moonshot": ProviderConfig(
             name="Moonshot (Kimi)",
             api_key=os.getenv("MOONSHOT_API_KEY", ""),
-            model=os.getenv("MOONSHOT_MODEL", "moonshot-v1-128k"),
-            base_url="https://api.moonshot.cn/v1",
+            model=os.getenv("MOONSHOT_MODEL", "kimi-k2-0905-preview"),
+            base_url="https://api.moonshot.ai/v1",
             enabled=True
         ),
         "perplexity": ProviderConfig(
