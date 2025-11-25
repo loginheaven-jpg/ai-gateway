@@ -66,10 +66,17 @@ def _get_default_providers():
             base_url="https://api.openai.com/v1",
             enabled=True
         ),
-        "gemini": ProviderConfig(
-            name="Gemini (Google)",
+        "gemini-pro": ProviderConfig(
+            name="Gemini (Pro)",
             api_key=os.getenv("GOOGLE_API_KEY", ""),
-            model=os.getenv("GEMINI_MODEL", "gemini-1.5-pro"),
+            model=os.getenv("GEMINI_PRO_MODEL", "gemini-1.5-pro"),
+            base_url="https://generativelanguage.googleapis.com/v1beta",
+            enabled=True
+        ),
+        "gemini-flash": ProviderConfig(
+            name="Gemini (Flash)",
+            api_key=os.getenv("GOOGLE_API_KEY", ""),
+            model=os.getenv("GEMINI_FLASH_MODEL", "gemini-2.0-flash-exp"),
             base_url="https://generativelanguage.googleapis.com/v1beta",
             enabled=True
         ),
@@ -78,6 +85,13 @@ def _get_default_providers():
             api_key=os.getenv("MOONSHOT_API_KEY", ""),
             model=os.getenv("MOONSHOT_MODEL", "moonshot-v1-128k"),
             base_url="https://api.moonshot.cn/v1",
+            enabled=True
+        ),
+        "perplexity": ProviderConfig(
+            name="Perplexity",
+            api_key=os.getenv("PERPLEXITY_API_KEY", ""),
+            model=os.getenv("PERPLEXITY_MODEL", "llama-3.1-sonar-large-128k-online"),
+            base_url="https://api.perplexity.ai",
             enabled=True
         )
     }
@@ -216,3 +230,25 @@ def update_provider(provider_id: str, updates: dict) -> ProviderConfig:
 
     save_config(config)
     return config.providers[provider_id]
+
+
+def add_provider(provider_id: str, provider_config: ProviderConfig) -> ProviderConfig:
+    """Add a new provider configuration"""
+    config = load_config()
+
+    if provider_id in config.providers:
+        raise ValueError(f"Provider already exists: {provider_id}")
+
+    config.providers[provider_id] = provider_config
+    save_config(config)
+    return provider_config
+
+
+def reset_providers():
+    """Reset providers to default configuration"""
+    default_config = AIConfig(
+        providers=_get_default_providers(),
+        default_provider="claude"
+    )
+    _save_to_db(default_config)
+    return default_config

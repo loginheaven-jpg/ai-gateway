@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 
-from ..config import load_config, save_config, update_provider, ProviderConfig
+from ..config import load_config, save_config, update_provider, reset_providers, ProviderConfig
 
 router = APIRouter(prefix="/api/settings", tags=["Settings"])
 
@@ -115,3 +115,14 @@ def mask_api_key(api_key: str) -> str:
     if len(api_key) <= 12:
         return "*" * len(api_key)
     return api_key[:8] + "*" * (len(api_key) - 12) + api_key[-4:]
+
+
+@router.post("/reset")
+async def reset_all_providers():
+    """Reset all providers to default configuration"""
+    config = reset_providers()
+    return {
+        "success": True,
+        "message": "All providers reset to default configuration",
+        "providers": list(config.providers.keys())
+    }

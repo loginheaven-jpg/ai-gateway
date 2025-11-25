@@ -44,7 +44,7 @@ def get_ai_service(provider_id: str):
 
     service_map = {
         "claude": ClaudeService,
-        "chatgpt": ChatGPTService,
+        "openai": ChatGPTService,
         "gemini-pro": GeminiService,
         "gemini-flash": GeminiService,
         "moonshot": MoonshotService,

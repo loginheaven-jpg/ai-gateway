@@ -29,8 +29,9 @@
 
     <div class="container">
         <!-- Status Bar -->
-        <div class="alert alert-info mb-4" id="status-bar">
-            <strong>Default Provider:</strong> <span id="default-provider">-</span>
+        <div class="alert alert-info mb-4 d-flex justify-content-between align-items-center" id="status-bar">
+            <div><strong>Default Provider:</strong> <span id="default-provider">-</span></div>
+            <button class="btn btn-sm btn-outline-danger" onclick="resetProviders()">Reset All Providers</button>
         </div>
 
         <!-- Providers Grid -->
@@ -115,7 +116,7 @@
         // AI Provider Documentation Links
         const PROVIDER_DOCS = {
             'claude': 'https://docs.anthropic.com/en/docs/about-claude/models',
-            'chatgpt': 'https://platform.openai.com/docs/models',
+            'openai': 'https://platform.openai.com/docs/models',
             'gemini-pro': 'https://ai.google.dev/gemini-api/docs/models/gemini',
             'gemini-flash': 'https://ai.google.dev/gemini-api/docs/models/gemini',
             'moonshot': 'https://platform.moonshot.cn/docs/intro',
@@ -237,6 +238,27 @@
                 loadProviders();
             } catch (error) {
                 alert('Failed to set default: ' + error.message);
+            }
+        }
+
+        async function resetProviders() {
+            if (!confirm('모든 Provider 설정을 초기화하시겠습니까?\n(API Key는 다시 입력해야 합니다)')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/api/settings/reset`, {
+                    method: 'POST'
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to reset');
+                }
+
+                alert('Provider 설정이 초기화되었습니다.');
+                loadProviders();
+            } catch (error) {
+                alert('Failed to reset: ' + error.message);
             }
         }
 
