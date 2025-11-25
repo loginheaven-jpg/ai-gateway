@@ -17,14 +17,18 @@ class GeminiService(AIService):
         max_tokens: int = 4096,
         temperature: float = 0.7
     ) -> Dict[str, Any]:
-        # 1. Create model with system instruction
-        model = genai.GenerativeModel(
-            self.model,
-            system_instruction=system_prompt
-        )
+        # 1. Create model (without system_instruction for compatibility)
+        model = genai.GenerativeModel(self.model)
 
         # 2. Preprocess messages (merge consecutive same roles)
         gemini_contents = []
+
+        # Add system prompt as first user message if provided
+        if system_prompt:
+            gemini_contents.append({
+                "role": "user",
+                "parts": [f"[System Instruction]\n{system_prompt}\n\n[User Message]"]
+            })
 
         for msg in messages:
             role = "model" if msg.get("role") == "assistant" else "user"
