@@ -26,11 +26,12 @@ class ChatGPTService(AIService):
         all_messages.extend(messages)
 
         # Call OpenAI API using SDK
+        # GPT-5.1 and newer models require max_completion_tokens instead of max_tokens
         response = client.chat.completions.create(
             model=self.model,
             messages=all_messages,
             temperature=temperature,
-            max_tokens=max_tokens
+            max_completion_tokens=max_tokens
         )
 
         return {
