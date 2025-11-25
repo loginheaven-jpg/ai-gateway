@@ -3,6 +3,7 @@ uvicorn[standard]==0.27.0
 python-dotenv==1.0.0
 httpx==0.26.0
 openai==1.12.0
-google-generativeai
-pydantic==2.5.3
+google-generativeai==0.3.2
+pydantic>=2.0.0,<3.0.0
 aiofiles==23.2.1
+anthropic==0.18.1
