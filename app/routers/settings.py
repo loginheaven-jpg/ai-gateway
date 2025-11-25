@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 
-from ..config import load_config, save_config, update_provider, reset_providers, ProviderConfig
+from ..config import load_config, save_config, update_provider, reset_providers, ProviderConfig, AIConfig
 
 router = APIRouter(prefix="/api/settings", tags=["Settings"])
 
@@ -126,3 +126,36 @@ async def reset_all_providers():
         "message": "All providers reset to default configuration",
         "providers": list(config.providers.keys())
     }
+
+
+@router.get("/export")
+async def export_config():
+    """Export all provider configurations as JSON (includes API keys)"""
+    config = load_config()
+    return {
+        "providers": {k: v.model_dump() for k, v in config.providers.items()},
+        "default_provider": config.default_provider
+    }
+
+
+@router.post("/import")
+async def import_config(data: dict):
+    """Import provider configurations from JSON"""
+    try:
+        providers = {}
+        for key, value in data.get("providers", {}).items():
+            providers[key] = ProviderConfig(**value)
+
+        config = AIConfig(
+            providers=providers,
+            default_provider=data.get("default_provider", "claude")
+        )
+        save_config(config)
+
+        return {
+            "success": True,
+            "message": "Configuration imported successfully",
+            "providers": list(config.providers.keys())
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid configuration: {str(e)}")

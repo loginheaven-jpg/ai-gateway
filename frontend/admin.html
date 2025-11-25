@@ -31,7 +31,11 @@
         <!-- Status Bar -->
         <div class="alert alert-info mb-4 d-flex justify-content-between align-items-center" id="status-bar">
             <div><strong>Default Provider:</strong> <span id="default-provider">-</span></div>
-            <button class="btn btn-sm btn-outline-danger" onclick="resetProviders()">Reset All Providers</button>
+            <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-outline-success" onclick="exportConfig()">Export Config</button>
+                <button class="btn btn-sm btn-outline-primary" onclick="importConfig()">Import Config</button>
+                <button class="btn btn-sm btn-outline-danger" onclick="resetProviders()">Reset All</button>
+            </div>
         </div>
 
         <!-- Providers Grid -->
@@ -260,6 +264,56 @@
             } catch (error) {
                 alert('Failed to reset: ' + error.message);
             }
+        }
+
+        async function exportConfig() {
+            try {
+                const response = await fetch(`${API_BASE}/api/settings/export`);
+                const config = await response.json();
+
+                // JSON 파일 다운로드
+                const blob = new Blob([JSON.stringify(config, null, 2)], {type: 'application/json'});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'ai-gateway-config.json';
+                a.click();
+                URL.revokeObjectURL(url);
+            } catch (error) {
+                alert('Export 실패: ' + error.message);
+            }
+        }
+
+        function importConfig() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json';
+            input.onchange = async (e) => {
+                try {
+                    const file = e.target.files[0];
+                    if (!file) return;
+
+                    const text = await file.text();
+                    const config = JSON.parse(text);
+
+                    const response = await fetch(`${API_BASE}/api/settings/import`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(config)
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.detail || 'Import failed');
+                    }
+
+                    alert('설정을 가져왔습니다.');
+                    loadProviders();
+                } catch (error) {
+                    alert('Import 실패: ' + error.message);
+                }
+            };
+            input.click();
         }
 
         async function testProvider() {
