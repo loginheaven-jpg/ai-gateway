@@ -30,7 +30,7 @@ class ChatGPTService(AIService):
             model=self.model,
             messages=all_messages,
             temperature=temperature,
-            max_completion_tokens=max_tokens
+            max_tokens=max_tokens
         )
 
         return {
