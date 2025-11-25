@@ -31,7 +31,7 @@ class ClaudeService(AIService):
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(
-                f"{self.base_url}/v1/messages",
+                f"{self.base_url}/messages",
                 headers=headers,
                 json=payload
             )

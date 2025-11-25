@@ -13,10 +13,10 @@ class ChatGPTService(AIService):
         max_tokens: int = 4096,
         temperature: float = 0.7
     ) -> Dict[str, Any]:
-        # Use default OpenAI endpoint
+        # Use configured OpenAI endpoint
         client = OpenAI(
             api_key=self.api_key,
-            base_url="https://api.openai.com/v1"
+            base_url=self.base_url
         )
 
         # Prepend system message if provided
