@@ -1,15 +1,25 @@
 import os
 import json
-import sqlite3
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 from pydantic import BaseModel
 
-# Use data directory for SQLite (can be mounted as Railway Volume)
-DATA_DIR = Path(__file__).parent / "data"
+# Database configuration
+# Priority: DATABASE_URL (PostgreSQL) > SQLite file
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+# For SQLite fallback
+DATA_DIR = Path(os.getenv("DATA_DIR", Path(__file__).parent / "data"))
 DATA_DIR.mkdir(exist_ok=True)
 DB_FILE = DATA_DIR / "config.db"
 CONFIG_FILE = DATA_DIR / "ai-config.json"
+
+# Determine database type
+USE_POSTGRES = DATABASE_URL is not None
+print(f"[CONFIG] Database: {'PostgreSQL' if USE_POSTGRES else 'SQLite'}")
+if not USE_POSTGRES:
+    print(f"[CONFIG] SQLite path: {DB_FILE}")
 
 
 class ProviderConfig(BaseModel):
@@ -25,28 +35,63 @@ class AIConfig(BaseModel):
     default_provider: str = "claude"
 
 
+def _get_pg_connection():
+    """Get PostgreSQL connection"""
+    import psycopg2
+    return psycopg2.connect(DATABASE_URL)
+
+
+def _get_sqlite_connection():
+    """Get SQLite connection"""
+    import sqlite3
+    return sqlite3.connect(str(DB_FILE))
+
+
 def init_db():
-    """Initialize SQLite database for config storage"""
-    conn = sqlite3.connect(str(DB_FILE))
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS providers (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            api_key TEXT NOT NULL,
-            model TEXT NOT NULL,
-            base_url TEXT NOT NULL,
-            enabled INTEGER DEFAULT 1
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )
-    ''')
-    conn.commit()
-    conn.close()
+    """Initialize database (PostgreSQL or SQLite)"""
+    if USE_POSTGRES:
+        conn = _get_pg_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS providers (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                api_key TEXT NOT NULL,
+                model TEXT NOT NULL,
+                base_url TEXT NOT NULL,
+                enabled INTEGER DEFAULT 1
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        ''')
+        conn.commit()
+        conn.close()
+    else:
+        import sqlite3
+        conn = sqlite3.connect(str(DB_FILE))
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS providers (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                api_key TEXT NOT NULL,
+                model TEXT NOT NULL,
+                base_url TEXT NOT NULL,
+                enabled INTEGER DEFAULT 1
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        ''')
+        conn.commit()
+        conn.close()
 
 
 def _get_default_providers():
@@ -55,28 +100,28 @@ def _get_default_providers():
         "claude": ProviderConfig(
             name="Claude (Anthropic)",
             api_key=os.getenv("ANTHROPIC_API_KEY", ""),
-            model=os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514"),
+            model=os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5"),
             base_url="https://api.anthropic.com/v1",
             enabled=True
         ),
         "openai": ProviderConfig(
             name="GPT (OpenAI)",
             api_key=os.getenv("OPENAI_API_KEY", ""),
-            model=os.getenv("OPENAI_MODEL", "gpt-4o"),
+            model=os.getenv("OPENAI_MODEL", "gpt-5.1"),
             base_url="https://api.openai.com/v1",
             enabled=True
         ),
         "gemini-pro": ProviderConfig(
             name="Gemini (Pro)",
             api_key=os.getenv("GOOGLE_API_KEY", ""),
-            model=os.getenv("GEMINI_PRO_MODEL", "gemini-1.5-pro"),
+            model=os.getenv("GEMINI_PRO_MODEL", "gemini-3-pro-preview"),
             base_url="https://generativelanguage.googleapis.com/v1beta",
             enabled=True
         ),
         "gemini-flash": ProviderConfig(
             name="Gemini (Flash)",
             api_key=os.getenv("GOOGLE_API_KEY", ""),
-            model=os.getenv("GEMINI_FLASH_MODEL", "gemini-2.0-flash-exp"),
+            model=os.getenv("GEMINI_FLASH_MODEL", "gemini-2.5-flash"),
             base_url="https://generativelanguage.googleapis.com/v1beta",
             enabled=True
         ),
@@ -90,7 +135,7 @@ def _get_default_providers():
         "perplexity": ProviderConfig(
             name="Perplexity",
             api_key=os.getenv("PERPLEXITY_API_KEY", ""),
-            model=os.getenv("PERPLEXITY_MODEL", "llama-3.1-sonar-large-128k-online"),
+            model=os.getenv("PERPLEXITY_MODEL", "sonar-pro"),
             base_url="https://api.perplexity.ai",
             enabled=True
         )
@@ -98,61 +143,86 @@ def _get_default_providers():
 
 
 def _load_from_db() -> Optional[AIConfig]:
-    """Load configuration from SQLite database"""
-    if not DB_FILE.exists():
-        return None
+    """Load configuration from database (PostgreSQL or SQLite)"""
+    try:
+        if USE_POSTGRES:
+            conn = _get_pg_connection()
+        else:
+            if not DB_FILE.exists():
+                return None
+            conn = _get_sqlite_connection()
 
-    conn = sqlite3.connect(str(DB_FILE))
-    cursor = conn.cursor()
+        cursor = conn.cursor()
 
-    # Check if providers table has data
-    cursor.execute("SELECT COUNT(*) FROM providers")
-    count = cursor.fetchone()[0]
+        # Check if providers table has data
+        cursor.execute("SELECT COUNT(*) FROM providers")
+        count = cursor.fetchone()[0]
 
-    if count == 0:
+        if count == 0:
+            conn.close()
+            return None
+
+        # Load providers
+        cursor.execute("SELECT id, name, api_key, model, base_url, enabled FROM providers")
+        providers = {}
+        for row in cursor.fetchall():
+            providers[row[0]] = ProviderConfig(
+                name=row[1],
+                api_key=row[2],
+                model=row[3],
+                base_url=row[4],
+                enabled=bool(row[5])
+            )
+
+        # Load default provider
+        cursor.execute("SELECT value FROM settings WHERE key = 'default_provider'")
+        result = cursor.fetchone()
+        default_provider = result[0] if result else "claude"
+
         conn.close()
+        return AIConfig(providers=providers, default_provider=default_provider)
+    except Exception as e:
+        print(f"[CONFIG] Error loading from DB: {e}")
         return None
-
-    # Load providers
-    cursor.execute("SELECT id, name, api_key, model, base_url, enabled FROM providers")
-    providers = {}
-    for row in cursor.fetchall():
-        providers[row[0]] = ProviderConfig(
-            name=row[1],
-            api_key=row[2],
-            model=row[3],
-            base_url=row[4],
-            enabled=bool(row[5])
-        )
-
-    # Load default provider
-    cursor.execute("SELECT value FROM settings WHERE key = 'default_provider'")
-    result = cursor.fetchone()
-    default_provider = result[0] if result else "claude"
-
-    conn.close()
-    return AIConfig(providers=providers, default_provider=default_provider)
 
 
 def _save_to_db(config: AIConfig):
-    """Save configuration to SQLite database"""
+    """Save configuration to database (PostgreSQL or SQLite)"""
     init_db()
-    conn = sqlite3.connect(str(DB_FILE))
+
+    if USE_POSTGRES:
+        conn = _get_pg_connection()
+    else:
+        conn = _get_sqlite_connection()
+
     cursor = conn.cursor()
 
     # Clear and insert providers
     cursor.execute("DELETE FROM providers")
     for provider_id, provider in config.providers.items():
-        cursor.execute('''
-            INSERT INTO providers (id, name, api_key, model, base_url, enabled)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (provider_id, provider.name, provider.api_key, provider.model,
-              provider.base_url, 1 if provider.enabled else 0))
+        if USE_POSTGRES:
+            cursor.execute('''
+                INSERT INTO providers (id, name, api_key, model, base_url, enabled)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            ''', (provider_id, provider.name, provider.api_key, provider.model,
+                  provider.base_url, 1 if provider.enabled else 0))
+        else:
+            cursor.execute('''
+                INSERT INTO providers (id, name, api_key, model, base_url, enabled)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (provider_id, provider.name, provider.api_key, provider.model,
+                  provider.base_url, 1 if provider.enabled else 0))
 
     # Save default provider
-    cursor.execute('''
-        INSERT OR REPLACE INTO settings (key, value) VALUES ('default_provider', ?)
-    ''', (config.default_provider,))
+    if USE_POSTGRES:
+        cursor.execute('''
+            INSERT INTO settings (key, value) VALUES ('default_provider', %s)
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+        ''', (config.default_provider,))
+    else:
+        cursor.execute('''
+            INSERT OR REPLACE INTO settings (key, value) VALUES ('default_provider', ?)
+        ''', (config.default_provider,))
 
     conn.commit()
     conn.close()
@@ -178,7 +248,7 @@ def _load_from_json() -> Optional[AIConfig]:
 
 def load_config() -> AIConfig:
     """Load AI configuration with fallback chain:
-    1. SQLite database (primary for production)
+    1. Database (PostgreSQL or SQLite)
     2. JSON file (legacy/development)
     3. Environment variables (initial setup)
     """
@@ -206,7 +276,7 @@ def load_config() -> AIConfig:
 
 
 def save_config(config: AIConfig) -> None:
-    """Save AI configuration to SQLite database"""
+    """Save AI configuration to database"""
     _save_to_db(config)
 
 
