@@ -64,17 +64,16 @@ class GeminiService(AIService):
         }
 
         # 4. Generate content (stateless, send all messages at once)
-        logger.info(f"[GEMINI] Calling API with extended timeout (300s)...")
+        logger.info(f"[GEMINI] Calling API...")
         try:
-            # Use request_options to set extended timeout for long analysis requests
+            # Note: timeout is handled by the underlying httpx client in newer versions
             response = await model.generate_content_async(
                 gemini_contents,
                 generation_config=genai.types.GenerationConfig(
                     temperature=temperature,
                     max_output_tokens=max_tokens,
                 ),
-                safety_settings=safety_settings,
-                request_options={"timeout": 300}  # 5 minutes timeout
+                safety_settings=safety_settings
             )
         except Exception as e:
             error_msg = str(e)
