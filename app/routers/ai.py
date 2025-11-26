@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
 import asyncio
 import time
+import traceback
 
 from ..config import load_config, get_provider
 from ..services import (
@@ -12,6 +13,11 @@ from ..services import (
     MoonshotService,
     PerplexityService
 )
+
+# Debug logging
+import logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/ai", tags=["AI"])
 
@@ -36,6 +42,9 @@ class ChatResponse(BaseModel):
     model: str
     provider: str
     usage: Dict[str, int]
+
+    class Config:
+        extra = "ignore"  # Ignore extra fields from AI services
 
 
 def get_ai_service(provider_id: str):
@@ -83,10 +92,17 @@ async def chat(request: ChatRequest):
         config = load_config()
         provider_id = request.provider or config.default_provider
 
+        logger.info(f"[CHAT] Provider: {provider_id}")
+        logger.info(f"[CHAT] Messages count: {len(request.messages)}")
+        logger.info(f"[CHAT] Max tokens: {request.max_tokens}")
+        logger.info(f"[CHAT] System prompt length: {len(request.system_prompt) if request.system_prompt else 0}")
+
         # Get service
         service = get_ai_service(provider_id)
+        logger.info(f"[CHAT] Service created: {type(service).__name__}")
 
         # Make request
+        logger.info(f"[CHAT] Calling service.chat()...")
         result = await service.chat(
             messages=request.messages,
             system_prompt=request.system_prompt,
@@ -94,12 +110,19 @@ async def chat(request: ChatRequest):
             temperature=request.temperature
         )
 
-        return ChatResponse(**result)
+        logger.info(f"[CHAT] Result keys: {result.keys() if result else 'None'}")
+        logger.info(f"[CHAT] Content length: {len(result.get('content', '')) if result else 0}")
+
+        response = ChatResponse(**result)
+        logger.info(f"[CHAT] Response created successfully")
+        return response
 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"[CHAT ERROR] {type(e).__name__}: {str(e)}")
+        logger.error(f"[CHAT ERROR] Traceback:\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
 
 
 @router.get("/providers")

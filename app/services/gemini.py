@@ -1,6 +1,9 @@
 import google.generativeai as genai
+import logging
 from typing import List, Dict, Any, Optional
 from .base import AIService
+
+logger = logging.getLogger(__name__)
 
 
 class GeminiService(AIService):
@@ -17,6 +20,9 @@ class GeminiService(AIService):
         max_tokens: int = 4096,
         temperature: float = 0.7
     ) -> Dict[str, Any]:
+        logger.info(f"[GEMINI] Model: {self.model}, Max tokens: {max_tokens}")
+        logger.info(f"[GEMINI] Messages: {len(messages)}, System prompt: {len(system_prompt) if system_prompt else 0} chars")
+
         # 1. Create model (without system_instruction for compatibility)
         model = genai.GenerativeModel(self.model)
 
@@ -56,6 +62,7 @@ class GeminiService(AIService):
         }
 
         # 4. Generate content (stateless, send all messages at once)
+        logger.info(f"[GEMINI] Calling API...")
         try:
             response = await model.generate_content_async(
                 gemini_contents,
@@ -66,16 +73,21 @@ class GeminiService(AIService):
                 safety_settings=safety_settings
             )
         except Exception as e:
-            return {"error": str(e), "content": f"Error: {str(e)}", "provider": "gemini", "model": self.model}
+            logger.error(f"[GEMINI ERROR] {type(e).__name__}: {str(e)}")
+            # Re-raise the exception so it's properly handled by the router
+            raise Exception(f"Gemini API error: {str(e)}")
 
         # 5. Extract response text with error handling
         try:
             content_text = response.text
-        except ValueError:
+            logger.info(f"[GEMINI] Response extracted successfully, length: {len(content_text)}")
+        except ValueError as ve:
+            logger.warning(f"[GEMINI] ValueError extracting response.text: {str(ve)}")
             # ValueError occurs when response.text can't be extracted
             if response.candidates:
                 candidate = response.candidates[0]
                 finish_reason = candidate.finish_reason.name
+                logger.info(f"[GEMINI] Finish reason: {finish_reason}")
 
                 # Check if there's actual content in parts
                 if candidate.content and candidate.content.parts:
@@ -86,14 +98,19 @@ class GeminiService(AIService):
                             parts_text.append(part.text)
                     if parts_text:
                         content_text = "\n".join(parts_text)
+                        logger.info(f"[GEMINI] Extracted from parts, length: {len(content_text)}")
                     else:
                         content_text = f"[Empty response: {finish_reason}]"
+                        logger.warning(f"[GEMINI] No text in parts: {content_text}")
                 elif finish_reason in ("SAFETY", "RECITATION", "OTHER"):
                     content_text = f"[Blocked: {finish_reason}]"
+                    logger.warning(f"[GEMINI] Content blocked: {content_text}")
                 else:
                     content_text = f"[Empty response: {finish_reason}]"
+                    logger.warning(f"[GEMINI] Empty response: {content_text}")
             else:
                 content_text = "[No content returned]"
+                logger.warning(f"[GEMINI] No candidates in response")
 
         # 6. Extract metadata
         usage_metadata = getattr(response, 'usage_metadata', None)
@@ -103,6 +120,8 @@ class GeminiService(AIService):
         finish_reason = "UNKNOWN"
         if response.candidates:
             finish_reason = response.candidates[0].finish_reason.name
+
+        logger.info(f"[GEMINI] Final response - finish_reason: {finish_reason}, input: {input_tokens}, output: {output_tokens}")
 
         return {
             "content": content_text,
