@@ -38,7 +38,14 @@ class AIConfig(BaseModel):
 def _get_pg_connection():
     """Get PostgreSQL connection"""
     import psycopg2
-    return psycopg2.connect(DATABASE_URL)
+    try:
+        print(f"[CONFIG] Connecting to PostgreSQL...")
+        conn = psycopg2.connect(DATABASE_URL)
+        print(f"[CONFIG] PostgreSQL connection successful")
+        return conn
+    except Exception as e:
+        print(f"[CONFIG] PostgreSQL connection failed: {type(e).__name__}: {e}")
+        raise
 
 
 def _get_sqlite_connection():
