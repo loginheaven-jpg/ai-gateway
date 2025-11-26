@@ -72,9 +72,26 @@ class GeminiService(AIService):
         try:
             content_text = response.text
         except ValueError:
+            # ValueError occurs when response.text can't be extracted
             if response.candidates:
-                finish_reason = response.candidates[0].finish_reason.name
-                content_text = f"[Blocked/Error: {finish_reason}]"
+                candidate = response.candidates[0]
+                finish_reason = candidate.finish_reason.name
+
+                # Check if there's actual content in parts
+                if candidate.content and candidate.content.parts:
+                    # Try to extract text from parts directly
+                    parts_text = []
+                    for part in candidate.content.parts:
+                        if hasattr(part, 'text') and part.text:
+                            parts_text.append(part.text)
+                    if parts_text:
+                        content_text = "\n".join(parts_text)
+                    else:
+                        content_text = f"[Empty response: {finish_reason}]"
+                elif finish_reason in ("SAFETY", "RECITATION", "OTHER"):
+                    content_text = f"[Blocked: {finish_reason}]"
+                else:
+                    content_text = f"[Empty response: {finish_reason}]"
             else:
                 content_text = "[No content returned]"
 
