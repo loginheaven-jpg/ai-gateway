@@ -13,9 +13,13 @@ from .config import init_db, load_config
 async def lifespan(app: FastAPI):
     """Initialize database on startup"""
     print("[STARTUP] Initializing database...")
-    init_db()
-    config = load_config()
-    print(f"[STARTUP] Loaded {len(config.providers)} providers")
+    try:
+        init_db()
+        config = load_config()
+        print(f"[STARTUP] Loaded {len(config.providers)} providers")
+    except Exception as e:
+        print(f"[STARTUP ERROR] Database initialization failed: {e}")
+        print("[STARTUP] Continuing without database - will use environment defaults")
     yield
     print("[SHUTDOWN] AI Gateway shutting down")
 
