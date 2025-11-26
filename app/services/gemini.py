@@ -11,7 +11,9 @@ class GeminiService(AIService):
 
     def __init__(self, api_key: str, model: str, base_url: str = None):
         super().__init__(api_key, model, base_url)
+        # Configure with extended timeout for long requests
         genai.configure(api_key=self.api_key)
+        logger.info(f"[GEMINI] Initialized with model: {model}")
 
     async def chat(
         self,
@@ -62,20 +64,26 @@ class GeminiService(AIService):
         }
 
         # 4. Generate content (stateless, send all messages at once)
-        logger.info(f"[GEMINI] Calling API...")
+        logger.info(f"[GEMINI] Calling API with extended timeout (300s)...")
         try:
+            # Use request_options to set extended timeout for long analysis requests
             response = await model.generate_content_async(
                 gemini_contents,
                 generation_config=genai.types.GenerationConfig(
                     temperature=temperature,
                     max_output_tokens=max_tokens,
                 ),
-                safety_settings=safety_settings
+                safety_settings=safety_settings,
+                request_options={"timeout": 300}  # 5 minutes timeout
             )
         except Exception as e:
-            logger.error(f"[GEMINI ERROR] {type(e).__name__}: {str(e)}")
+            error_msg = str(e)
+            logger.error(f"[GEMINI ERROR] {type(e).__name__}: {error_msg}")
+            # Check if it's a timeout error
+            if "504" in error_msg or "timed out" in error_msg.lower() or "timeout" in error_msg.lower():
+                raise Exception(f"Gemini API timeout: 요청 시간이 초과되었습니다. 녹취록이 너무 길 수 있습니다.")
             # Re-raise the exception so it's properly handled by the router
-            raise Exception(f"Gemini API error: {str(e)}")
+            raise Exception(f"Gemini API error: {error_msg}")
 
         # 5. Extract response text with error handling
         try:
