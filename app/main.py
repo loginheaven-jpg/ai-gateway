@@ -3,13 +3,28 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pathlib import Path
+from contextlib import asynccontextmanager
 
 from .routers import ai_router, settings_router
+from .config import init_db, load_config
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize database on startup"""
+    print("[STARTUP] Initializing database...")
+    init_db()
+    config = load_config()
+    print(f"[STARTUP] Loaded {len(config.providers)} providers")
+    yield
+    print("[SHUTDOWN] AI Gateway shutting down")
+
 
 app = FastAPI(
     title="AI Gateway",
     description="Centralized AI service management for multiple applications",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # CORS middleware
