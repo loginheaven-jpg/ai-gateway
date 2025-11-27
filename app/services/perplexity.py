@@ -43,17 +43,26 @@ class PerplexityService(AIService):
         # 전체 응답 디버그 로깅
         import logging
         import json
-        logging.warning(f"[Perplexity] FULL RESPONSE: {json.dumps(data, indent=2, default=str)[:2000]}")
+        logging.warning(f"[Perplexity] TOP-LEVEL KEYS: {list(data.keys())}")
+        if "choices" in data and data["choices"]:
+            choice = data["choices"][0]
+            logging.warning(f"[Perplexity] CHOICE KEYS: {list(choice.keys())}")
+            if "message" in choice:
+                logging.warning(f"[Perplexity] MESSAGE KEYS: {list(choice['message'].keys())}")
 
-        # citations 추출 - 여러 위치 확인 (Perplexity API 버전에 따라 다름)
-        citations = (
-            data.get("citations") or
-            data.get("choices", [{}])[0].get("citations") or
-            data.get("choices", [{}])[0].get("message", {}).get("citations") or
-            []
-        )
+        # citations 추출 - Perplexity API는 citations를 최상위 레벨에 반환
+        citations = data.get("citations", [])
+        logging.warning(f"[Perplexity] Top-level citations: {citations[:3] if citations else 'EMPTY'}")
 
-        logging.warning(f"[Perplexity] Citations found: {len(citations)} items - {citations[:3] if citations else 'NONE'}")
+        # 대체 위치들도 확인
+        if not citations:
+            citations = data.get("choices", [{}])[0].get("citations", [])
+            logging.warning(f"[Perplexity] choices[0].citations: {citations[:3] if citations else 'EMPTY'}")
+        if not citations:
+            citations = data.get("choices", [{}])[0].get("message", {}).get("citations", [])
+            logging.warning(f"[Perplexity] message.citations: {citations[:3] if citations else 'EMPTY'}")
+
+        logging.warning(f"[Perplexity] FINAL citations count: {len(citations)}")
 
         return {
             "content": data["choices"][0]["message"]["content"],
