@@ -40,6 +40,9 @@ class PerplexityService(AIService):
             response.raise_for_status()
             data = response.json()
 
+        # citations 추출 (Perplexity API에서 제공하는 경우)
+        citations = data.get("citations", [])
+
         return {
             "content": data["choices"][0]["message"]["content"],
             "model": data["model"],
@@ -47,5 +50,6 @@ class PerplexityService(AIService):
                 "input_tokens": data["usage"].get("prompt_tokens", 0),
                 "output_tokens": data["usage"].get("completion_tokens", 0)
             },
-            "provider": "perplexity"
+            "provider": "perplexity",
+            "citations": citations
         }
