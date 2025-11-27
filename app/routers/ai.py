@@ -42,6 +42,7 @@ class ChatResponse(BaseModel):
     model: str
     provider: str
     usage: Dict[str, int]
+    citations: Optional[List[str]] = None  # Perplexity citations
 
     class Config:
         extra = "ignore"  # Ignore extra fields from AI services
@@ -112,9 +113,11 @@ async def chat(request: ChatRequest):
 
         logger.info(f"[CHAT] Result keys: {result.keys() if result else 'None'}")
         logger.info(f"[CHAT] Content length: {len(result.get('content', '')) if result else 0}")
+        logger.info(f"[CHAT] Citations in result: {len(result.get('citations', [])) if result else 0}")
 
         response = ChatResponse(**result)
         logger.info(f"[CHAT] Response created successfully")
+        logger.info(f"[CHAT] Response citations: {len(response.citations) if response.citations else 0}")
         return response
 
     except HTTPException:
