@@ -40,6 +40,11 @@ class PerplexityService(AIService):
             response.raise_for_status()
             data = response.json()
 
+        # 전체 응답 디버그 로깅
+        import logging
+        import json
+        logging.warning(f"[Perplexity] FULL RESPONSE: {json.dumps(data, indent=2, default=str)[:2000]}")
+
         # citations 추출 - 여러 위치 확인 (Perplexity API 버전에 따라 다름)
         citations = (
             data.get("citations") or
@@ -48,12 +53,7 @@ class PerplexityService(AIService):
             []
         )
 
-        # 디버그 로깅
-        import logging
-        logging.info(f"[Perplexity] Response keys: {data.keys()}")
-        logging.info(f"[Perplexity] Citations found: {len(citations)} items")
-        if citations:
-            logging.info(f"[Perplexity] First citation: {citations[0] if citations else 'None'}")
+        logging.warning(f"[Perplexity] Citations found: {len(citations)} items - {citations[:3] if citations else 'NONE'}")
 
         return {
             "content": data["choices"][0]["message"]["content"],
