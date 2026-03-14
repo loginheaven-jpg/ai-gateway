@@ -11,7 +11,8 @@ AI Gateway는 여러 AI 프로바이더(Claude, OpenAI, Gemini, Moonshot, Perple
 | Framework | FastAPI (Python) |
 | Database | PostgreSQL (운영) / SQLite (로컬) |
 | HTTP Client | httpx, openai SDK, google-genai SDK |
-| Deployment | Heroku (Procfile) |
+| Deployment | Railway (GitHub 자동 배포) |
+| 운영 URL | https://ai-gateway20251125.up.railway.app |
 | Port | 9000 (로컬) / $PORT (운영) |
 
 ## Project Structure
@@ -58,7 +59,7 @@ ai-gateway/
 ## Base URL
 
 ```
-운영: https://<your-domain>
+운영: https://ai-gateway20251125.up.railway.app
 로컬: http://localhost:9000
 ```
 
