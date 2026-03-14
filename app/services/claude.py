@@ -1,6 +1,7 @@
 import httpx
+import json
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, AsyncGenerator
 from .base import AIService
 
 logger = logging.getLogger(__name__)
@@ -72,3 +73,51 @@ class ClaudeService(AIService):
         except Exception as e:
             logger.error(f"[CLAUDE ERROR] {type(e).__name__}: {str(e)}")
             raise
+
+    async def stream(
+        self,
+        messages: List[Dict[str, str]],
+        system_prompt: Optional[str] = None,
+        max_tokens: int = 4096,
+        temperature: float = 0.7
+    ) -> AsyncGenerator[str, None]:
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": self.api_key,
+            "anthropic-version": "2023-06-01"
+        }
+
+        payload = {
+            "model": self.model,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": messages,
+            "stream": True
+        }
+
+        if system_prompt:
+            payload["system"] = system_prompt
+
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            async with client.stream(
+                "POST",
+                f"{self.base_url}/messages",
+                headers=headers,
+                json=payload
+            ) as response:
+                if response.status_code != 200:
+                    error_text = await response.aread()
+                    raise Exception(f"Claude API error {response.status_code}: {error_text.decode()[:500]}")
+
+                async for line in response.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data = json.loads(line[6:])
+                    event_type = data.get("type")
+
+                    if event_type == "content_block_delta":
+                        delta = data.get("delta", {})
+                        if delta.get("type") == "text_delta":
+                            yield delta["text"]
+                    elif event_type == "message_stop":
+                        break

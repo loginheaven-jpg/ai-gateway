@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, AsyncGenerator
 
 
 class AIService(ABC):
@@ -31,3 +31,18 @@ class AIService(ABC):
             Dict with 'content', 'model', 'usage' keys
         """
         pass
+
+    async def stream(
+        self,
+        messages: List[Dict[str, str]],
+        system_prompt: Optional[str] = None,
+        max_tokens: int = 4096,
+        temperature: float = 0.7
+    ) -> AsyncGenerator[str, None]:
+        """
+        Stream a chat response from the AI provider via SSE.
+        Yields JSON strings for each chunk.
+        Default implementation falls back to non-streaming chat.
+        """
+        result = await self.chat(messages, system_prompt, max_tokens, temperature)
+        yield result["content"]

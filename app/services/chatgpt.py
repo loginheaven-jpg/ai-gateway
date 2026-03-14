@@ -1,7 +1,7 @@
 from openai import OpenAI
 import httpx
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, AsyncGenerator
 from .base import AIService
 
 logger = logging.getLogger(__name__)
@@ -61,3 +61,33 @@ class ChatGPTService(AIService):
         except Exception as e:
             logger.error(f"[OPENAI ERROR] {type(e).__name__}: {str(e)}")
             raise
+
+    async def stream(
+        self,
+        messages: List[Dict[str, str]],
+        system_prompt: Optional[str] = None,
+        max_tokens: int = 4096,
+        temperature: float = 0.7
+    ) -> AsyncGenerator[str, None]:
+        client = OpenAI(
+            api_key=self.api_key,
+            base_url=self.base_url,
+            timeout=httpx.Timeout(300.0, connect=60.0)
+        )
+
+        all_messages = []
+        if system_prompt:
+            all_messages.append({"role": "system", "content": system_prompt})
+        all_messages.extend(messages)
+
+        stream = client.chat.completions.create(
+            model=self.model,
+            messages=all_messages,
+            temperature=temperature,
+            max_completion_tokens=max_tokens,
+            stream=True
+        )
+
+        for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content

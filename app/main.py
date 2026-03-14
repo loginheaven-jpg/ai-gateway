@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 from .routers import ai_router, settings_router
 from .config import init_db, load_config
+from .usage import init_usage_table
 
 
 @asynccontextmanager
@@ -15,6 +16,7 @@ async def lifespan(app: FastAPI):
     print("[STARTUP] Initializing database...")
     try:
         init_db()
+        init_usage_table()
         config = load_config()
         print(f"[STARTUP] Loaded {len(config.providers)} providers")
     except Exception as e:

@@ -3,6 +3,8 @@ from pydantic import BaseModel
 from typing import Optional
 
 from ..config import load_config, save_config, update_provider, reset_providers, ProviderConfig, AIConfig
+from ..usage import get_usage_stats, get_recent_logs
+from ..cache import response_cache
 
 router = APIRouter(prefix="/api/settings", tags=["Settings"])
 
@@ -159,3 +161,38 @@ async def import_config(data: dict):
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid configuration: {str(e)}")
+
+
+# ── Usage Stats ──────────────────────────────────────────────
+
+@router.get("/usage/stats")
+async def usage_stats(days: int = 7, provider: Optional[str] = None):
+    """Get usage statistics for the given period."""
+    try:
+        return get_usage_stats(days=days, provider=provider)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/usage/logs")
+async def usage_logs(limit: int = 50):
+    """Get recent usage log entries."""
+    try:
+        return {"logs": get_recent_logs(limit=limit)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Cache Management ─────────────────────────────────────────
+
+@router.get("/cache/stats")
+async def cache_stats():
+    """Get cache statistics."""
+    return response_cache.stats()
+
+
+@router.post("/cache/clear")
+async def cache_clear():
+    """Clear all cached responses."""
+    response_cache.clear()
+    return {"success": True, "message": "Cache cleared"}

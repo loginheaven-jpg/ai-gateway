@@ -21,18 +21,20 @@ ai-gateway/
 ├── app/
 │   ├── main.py              # FastAPI 앱 초기화, CORS, 라우터 등록
 │   ├── config.py             # 프로바이더 설정 관리 (DB/JSON/ENV fallback)
+│   ├── usage.py              # 사용량 로깅 모듈 (DB 기반)
+│   ├── cache.py              # 인메모리 응답 캐시 (TTL 기반)
 │   ├── routers/
-│   │   ├── ai.py             # /api/ai/* - 채팅 API 엔드포인트
-│   │   └── settings.py       # /api/settings/* - 설정 관리 엔드포인트
+│   │   ├── ai.py             # /api/ai/* - 채팅/스트리밍 API (fallback 지원)
+│   │   └── settings.py       # /api/settings/* - 설정/통계/캐시 관리
 │   └── services/
-│       ├── base.py           # AIService 추상 클래스
-│       ├── claude.py         # Anthropic Claude (Sonnet/Haiku)
-│       ├── chatgpt.py        # OpenAI GPT
+│       ├── base.py           # AIService 추상 클래스 (chat + stream)
+│       ├── claude.py         # Anthropic Claude (Sonnet/Haiku, 네이티브 스트리밍)
+│       ├── chatgpt.py        # OpenAI GPT (네이티브 스트리밍)
 │       ├── gemini.py         # Google Gemini (Pro/Flash)
 │       ├── moonshot.py       # Moonshot Kimi
 │       └── perplexity.py     # Perplexity (검색 특화)
 ├── frontend/
-│   └── admin.html            # 관리자 대시보드
+│   └── admin.html            # 관리자 대시보드 (통계/캐시/스트리밍 UI 포함)
 ├── Procfile                  # Heroku 배포 설정
 └── requirements.txt          # Python 의존성
 ```
@@ -72,7 +74,7 @@ ai-gateway/
 
 ### `POST /api/ai/chat`
 
-AI 프로바이더에 채팅 요청을 보냅니다.
+AI 프로바이더에 채팅 요청을 보냅니다. **Fallback 체인**, **응답 캐싱**, **사용량 로깅**이 자동 적용됩니다.
 
 **Request Body:**
 
@@ -86,7 +88,10 @@ AI 프로바이더에 채팅 요청을 보냅니다.
   ],
   "system_prompt": "당신은 친절한 비서입니다.",  // (선택) 시스템 프롬프트
   "max_tokens": 4096,                 // (선택, 기본: 4096)
-  "temperature": 0.7                  // (선택, 기본: 0.7)
+  "temperature": 0.7,                 // (선택, 기본: 0.7)
+  "use_fallback": true,               // (선택, 기본: true) 실패 시 자동 대체
+  "use_cache": true,                   // (선택, 기본: true) 동일 요청 캐시
+  "caller": "saint-record"             // (선택) 호출자 식별 (사용량 추적용)
 }
 ```
 
@@ -117,6 +122,62 @@ AI 프로바이더에 채팅 요청을 보냅니다.
 
 **사용 가능한 provider 값:**
 `claude-sonnet`, `claude-haiku`, `openai`, `gemini-pro`, `gemini-flash`, `moonshot`, `perplexity`
+
+**Fallback 체인 (기본):**
+
+| Primary | Fallback 순서 |
+|---------|---------------|
+| claude-sonnet | claude-haiku → openai → gemini-pro |
+| claude-haiku | claude-sonnet → openai → gemini-flash |
+| openai | claude-sonnet → gemini-pro |
+| gemini-pro | gemini-flash → claude-sonnet → openai |
+| gemini-flash | gemini-pro → claude-haiku → openai |
+| moonshot | claude-sonnet → openai |
+| perplexity | openai → claude-sonnet |
+
+---
+
+### `POST /api/ai/chat/stream`
+
+SSE(Server-Sent Events)로 응답을 스트리밍합니다. Request Body는 `/api/ai/chat`과 동일합니다.
+
+**Response (SSE stream):**
+
+```
+data: {"text": "안녕"}
+data: {"text": "하세요"}
+data: {"text": "!"}
+data: {"done": true}
+```
+
+> 에러 발생 시: `data: {"error": "메시지"}`
+> Claude와 OpenAI는 네이티브 스트리밍, 나머지는 전체 응답 후 단일 청크로 전송됩니다.
+
+**JavaScript 연동 예시:**
+
+```javascript
+const response = await fetch('/api/ai/chat/stream', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    provider: 'claude-sonnet',
+    messages: [{ role: 'user', content: '이야기 해줘' }]
+  })
+});
+
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  const lines = decoder.decode(value).split('\n');
+  for (const line of lines) {
+    if (!line.startsWith('data: ')) continue;
+    const data = JSON.parse(line.slice(6));
+    if (data.text) process.stdout.write(data.text);
+  }
+}
+```
 
 ---
 
@@ -226,6 +287,35 @@ AI 프로바이더에 채팅 요청을 보냅니다.
 ### `POST /api/settings/import`
 
 JSON 설정 가져오기
+
+### `GET /api/settings/usage/stats?days=7&provider=claude-sonnet`
+
+사용량 통계 조회. `days`(기간), `provider`(필터) 파라미터 지원.
+
+```json
+{
+  "period_days": 7,
+  "total": { "total_requests": 150, "total_input_tokens": 50000, "total_output_tokens": 80000, "avg_elapsed_ms": 2500 },
+  "by_provider": [
+    { "provider": "claude-sonnet", "request_count": 80, "total_input_tokens": 30000, "total_output_tokens": 50000, "avg_elapsed_ms": 3000, "success_count": 78, "error_count": 2 }
+  ],
+  "daily": [
+    { "date": "2026-03-14", "request_count": 25, "total_input_tokens": 8000, "total_output_tokens": 12000 }
+  ]
+}
+```
+
+### `GET /api/settings/usage/logs?limit=50`
+
+최근 사용 로그 조회.
+
+### `GET /api/settings/cache/stats`
+
+캐시 통계 (hit/miss, hit rate, 엔트리 수 등).
+
+### `POST /api/settings/cache/clear`
+
+캐시 전체 삭제.
 
 ---
 

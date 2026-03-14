@@ -1,11 +1,15 @@
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
 import asyncio
+import json
 import time
 import traceback
 
 from ..config import load_config, get_provider
+from ..usage import log_usage
+from ..cache import response_cache
 from ..services import (
     ClaudeService,
     ChatGPTService,
@@ -22,12 +26,26 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/ai", tags=["AI"])
 
 
+FALLBACK_CHAINS = {
+    "claude-sonnet": ["claude-haiku", "openai", "gemini-pro"],
+    "claude-haiku": ["claude-sonnet", "openai", "gemini-flash"],
+    "openai": ["claude-sonnet", "gemini-pro"],
+    "gemini-pro": ["gemini-flash", "claude-sonnet", "openai"],
+    "gemini-flash": ["gemini-pro", "claude-haiku", "openai"],
+    "moonshot": ["claude-sonnet", "openai"],
+    "perplexity": ["openai", "claude-sonnet"],
+}
+
+
 class ChatRequest(BaseModel):
     provider: Optional[str] = None  # If None, use default
     messages: List[Dict[str, str]]
     system_prompt: Optional[str] = None
     max_tokens: int = 4096
     temperature: float = 0.7
+    use_fallback: bool = True       # Enable automatic fallback on failure
+    use_cache: bool = True          # Enable response caching
+    caller: Optional[str] = None    # Caller identifier for usage tracking
 
 
 class BatchChatRequest(BaseModel):
@@ -82,51 +100,139 @@ def get_ai_service(provider_id: str):
     )
 
 
-@router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
-    """
-    Send a chat request to an AI provider.
-
-    If provider is not specified, uses the default provider from config.
-    """
+async def _try_provider(provider_id: str, request: ChatRequest) -> Dict[str, Any]:
+    """Try a single provider and return result. Raises on failure."""
+    service = get_ai_service(provider_id)
+    start_time = time.time()
     try:
-        # Determine provider
-        config = load_config()
-        provider_id = request.provider or config.default_provider
-
-        logger.info(f"[CHAT] Provider: {provider_id}")
-        logger.info(f"[CHAT] Messages count: {len(request.messages)}")
-        logger.info(f"[CHAT] Max tokens: {request.max_tokens}")
-        logger.info(f"[CHAT] System prompt length: {len(request.system_prompt) if request.system_prompt else 0}")
-
-        # Get service
-        service = get_ai_service(provider_id)
-        logger.info(f"[CHAT] Service created: {type(service).__name__}")
-
-        # Make request
-        logger.info(f"[CHAT] Calling service.chat()...")
         result = await service.chat(
             messages=request.messages,
             system_prompt=request.system_prompt,
             max_tokens=request.max_tokens,
             temperature=request.temperature
         )
+        elapsed_ms = int((time.time() - start_time) * 1000)
 
-        logger.info(f"[CHAT] Result keys: {result.keys() if result else 'None'}")
-        logger.info(f"[CHAT] Content length: {len(result.get('content', '')) if result else 0}")
-        logger.info(f"[CHAT] Citations in result: {len(result.get('citations', [])) if result else 0}")
+        # Log successful usage
+        log_usage(
+            provider=provider_id,
+            model=result.get("model", ""),
+            input_tokens=result.get("usage", {}).get("input_tokens", 0),
+            output_tokens=result.get("usage", {}).get("output_tokens", 0),
+            elapsed_ms=elapsed_ms,
+            success=True,
+            caller=request.caller
+        )
 
-        response = ChatResponse(**result)
-        logger.info(f"[CHAT] Response created successfully")
-        logger.info(f"[CHAT] Response citations: {len(response.citations) if response.citations else 0}")
-        return response
-
-    except HTTPException:
-        raise
+        return result
     except Exception as e:
-        logger.error(f"[CHAT ERROR] {type(e).__name__}: {str(e)}")
-        logger.error(f"[CHAT ERROR] Traceback:\n{traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        log_usage(
+            provider=provider_id,
+            model="",
+            elapsed_ms=elapsed_ms,
+            success=False,
+            error_message=str(e)[:500],
+            caller=request.caller
+        )
+        raise
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest):
+    """
+    Send a chat request to an AI provider.
+    Supports caching, fallback chain, and usage logging.
+    """
+    config = load_config()
+    provider_id = request.provider or config.default_provider
+
+    logger.info(f"[CHAT] Provider: {provider_id}, Messages: {len(request.messages)}")
+
+    # Check cache
+    if request.use_cache:
+        cached = response_cache.get(
+            provider_id, request.messages, request.system_prompt,
+            request.max_tokens, request.temperature
+        )
+        if cached:
+            cached["_cached"] = True
+            return ChatResponse(**cached)
+
+    # Build provider attempt list (primary + fallbacks)
+    providers_to_try = [provider_id]
+    if request.use_fallback:
+        fallbacks = FALLBACK_CHAINS.get(provider_id, [])
+        providers_to_try.extend(fallbacks)
+
+    last_error = None
+    for pid in providers_to_try:
+        try:
+            result = await _try_provider(pid, request)
+
+            # Cache the result
+            if request.use_cache:
+                response_cache.set(
+                    provider_id, request.messages, request.system_prompt,
+                    request.max_tokens, request.temperature, result
+                )
+
+            if pid != provider_id:
+                logger.info(f"[FALLBACK] {provider_id} failed, succeeded with {pid}")
+
+            return ChatResponse(**result)
+
+        except HTTPException as e:
+            last_error = e
+            if not request.use_fallback or pid == providers_to_try[-1]:
+                raise
+            logger.warning(f"[FALLBACK] {pid} failed ({e.detail}), trying next...")
+        except Exception as e:
+            last_error = e
+            if not request.use_fallback or pid == providers_to_try[-1]:
+                logger.error(f"[CHAT ERROR] {type(e).__name__}: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
+            logger.warning(f"[FALLBACK] {pid} failed ({e}), trying next...")
+
+    raise HTTPException(status_code=500, detail=f"All providers failed. Last error: {last_error}")
+
+
+@router.post("/chat/stream")
+async def chat_stream(request: ChatRequest):
+    """
+    Stream a chat response via Server-Sent Events (SSE).
+    Each chunk is sent as: data: {"text": "..."}\n\n
+    Final event: data: {"done": true}\n\n
+    """
+    config = load_config()
+    provider_id = request.provider or config.default_provider
+
+    try:
+        service = get_ai_service(provider_id)
+    except HTTPException as e:
+        async def error_gen():
+            yield f"data: {json.dumps({'error': e.detail})}\n\n"
+        return StreamingResponse(error_gen(), media_type="text/event-stream")
+
+    async def event_generator():
+        try:
+            async for chunk in service.stream(
+                messages=request.messages,
+                system_prompt=request.system_prompt,
+                max_tokens=request.max_tokens,
+                temperature=request.temperature
+            ):
+                yield f"data: {json.dumps({'text': chunk})}\n\n"
+            yield f"data: {json.dumps({'done': True})}\n\n"
+        except Exception as e:
+            logger.error(f"[STREAM ERROR] {type(e).__name__}: {str(e)}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+    )
 
 
 @router.get("/providers")
