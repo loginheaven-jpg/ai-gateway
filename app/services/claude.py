@@ -60,7 +60,7 @@ class ClaudeService(AIService):
                     "input_tokens": data["usage"]["input_tokens"],
                     "output_tokens": data["usage"]["output_tokens"]
                 },
-                "provider": "claude"
+                "provider": "claude-haiku" if "haiku" in data["model"] else "claude-sonnet"
             }
 
         except httpx.TimeoutException as e:

@@ -32,7 +32,7 @@ class ProviderConfig(BaseModel):
 
 class AIConfig(BaseModel):
     providers: dict[str, ProviderConfig]
-    default_provider: str = "claude"
+    default_provider: str = "claude-sonnet"
 
 
 def _get_pg_connection():
@@ -104,10 +104,17 @@ def init_db():
 def _get_default_providers():
     """Get default provider configurations from environment or defaults"""
     return {
-        "claude": ProviderConfig(
-            name="Claude (Anthropic)",
+        "claude-sonnet": ProviderConfig(
+            name="Claude Sonnet (Anthropic)",
             api_key=os.getenv("ANTHROPIC_API_KEY", ""),
-            model=os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5"),
+            model=os.getenv("CLAUDE_SONNET_MODEL", "claude-sonnet-4-5"),
+            base_url="https://api.anthropic.com/v1",
+            enabled=True
+        ),
+        "claude-haiku": ProviderConfig(
+            name="Claude Haiku (Anthropic)",
+            api_key=os.getenv("ANTHROPIC_API_KEY", ""),
+            model=os.getenv("CLAUDE_HAIKU_MODEL", "claude-haiku-4-5-20251001"),
             base_url="https://api.anthropic.com/v1",
             enabled=True
         ),
@@ -276,7 +283,7 @@ def load_config() -> AIConfig:
     # Use defaults from environment variables
     default_config = AIConfig(
         providers=_get_default_providers(),
-        default_provider=os.getenv("DEFAULT_AI_PROVIDER", "claude")
+        default_provider=os.getenv("DEFAULT_AI_PROVIDER", "claude-sonnet")
     )
     _save_to_db(default_config)
     return default_config
@@ -325,7 +332,7 @@ def reset_providers():
     """Reset providers to default configuration"""
     default_config = AIConfig(
         providers=_get_default_providers(),
-        default_provider="claude"
+        default_provider="claude-sonnet"
     )
     _save_to_db(default_config)
     return default_config

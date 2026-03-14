@@ -62,7 +62,8 @@ def get_ai_service(provider_id: str):
         raise HTTPException(status_code=400, detail=f"API key not configured for: {provider_id}")
 
     service_map = {
-        "claude": ClaudeService,
+        "claude-sonnet": ClaudeService,
+        "claude-haiku": ClaudeService,
         "openai": ChatGPTService,
         "gemini-pro": GeminiService,
         "gemini-flash": GeminiService,
