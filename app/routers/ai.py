@@ -167,7 +167,7 @@ async def batch_chat(request: BatchChatRequest):
             return {
                 "provider": provider_id,
                 "success": True,
-                "response": result["content"][:500] if len(result["content"]) > 500 else result["content"],
+                "response": result["content"],
                 "model": result.get("model", ""),
                 "elapsed_ms": int(elapsed * 1000)
             }

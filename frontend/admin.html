@@ -468,8 +468,10 @@
                         <td>${r.success ? '<span class="text-success">OK</span>' : '<span class="text-danger">FAIL</span>'}</td>
                         <td>${r.elapsed_ms}ms</td>
                         <td><small>${r.model || '-'}</small></td>
-                        <td style="max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${r.success ? r.response : r.error}">
-                            ${r.success ? r.response : `<span class="text-danger">${r.error}</span>`}
+                        <td>
+                            <div style="max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">
+                                ${r.success ? r.response : `<span class="text-danger">${r.error}</span>`}
+                            </div>
                         </td>
                     </tr>
                 `).join('');
