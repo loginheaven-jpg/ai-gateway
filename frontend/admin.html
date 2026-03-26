@@ -50,42 +50,74 @@
             <!-- STT provider cards will be loaded here -->
         </div>
 
-        <!-- STT Test Section -->
+        <!-- STT Batch Test Section -->
         <div class="card mt-4">
-            <div class="card-header">
-                <h5 class="mb-0">STT Test (Speech-to-Text)</h5>
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">STT Batch Test (Speech-to-Text)</h5>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-secondary" onclick="document.querySelectorAll('.stt-checkbox').forEach(c=>c.checked=true)">Select All</button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="document.querySelectorAll('.stt-checkbox').forEach(c=>c.checked=false)">Deselect All</button>
+                </div>
             </div>
             <div class="card-body">
-                <div class="row">
-                    <div class="col-md-4">
+                <!-- Audio Source: File or Microphone -->
+                <div class="row mb-3">
+                    <div class="col-md-5">
                         <label class="form-label">Audio File</label>
                         <input type="file" class="form-control" id="stt-file" accept=".webm,.mp4,.mp3,.wav,.ogg,.m4a,.flac,.aac">
+                    </div>
+                    <div class="col-md-1 d-flex align-items-end justify-content-center">
+                        <span class="text-muted">or</span>
+                    </div>
+                    <div class="col-md-3 d-flex align-items-end">
+                        <button class="btn btn-outline-danger w-100" id="mic-btn" onclick="toggleMic()">
+                            <span id="mic-icon">🎙</span> Record
+                        </button>
+                    </div>
+                    <div class="col-md-3 d-flex align-items-end">
+                        <span class="small text-muted" id="mic-status"></span>
+                    </div>
+                </div>
+
+                <!-- Provider Selection + Language + Test Button -->
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">STT Providers (select to compare)</label>
+                        <div class="d-flex gap-3 flex-wrap" id="stt-checkbox-group">
+                            <!-- checkboxes populated by JS -->
+                        </div>
                     </div>
                     <div class="col-md-2">
                         <label class="form-label">Language</label>
                         <select class="form-select" id="stt-language">
-                            <option value="ko" selected>Korean (ko)</option>
-                            <option value="en">English (en)</option>
-                            <option value="ja">Japanese (ja)</option>
-                            <option value="zh">Chinese (zh)</option>
+                            <option value="ko" selected>Korean</option>
+                            <option value="en">English</option>
+                            <option value="ja">Japanese</option>
+                            <option value="zh">Chinese</option>
                         </select>
                     </div>
-                    <div class="col-md-3">
-                        <label class="form-label">Provider</label>
-                        <select class="form-select" id="stt-provider">
-                            <option value="">Default</option>
-                        </select>
-                    </div>
-                    <div class="col-md-3 d-flex align-items-end">
-                        <button class="btn btn-warning w-100" id="stt-btn" onclick="sttTest()">Recognize</button>
+                    <div class="col-md-4 d-flex align-items-end">
+                        <button class="btn btn-warning w-100" id="stt-btn" onclick="sttBatchTest()">Batch Recognize</button>
                     </div>
                 </div>
-                <div class="mt-3" id="stt-result" style="display: none;">
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <label class="form-label mb-0">Recognized Text:</label>
-                        <small class="text-muted" id="stt-meta"></small>
+
+                <!-- Results Table -->
+                <div id="stt-results" style="display: none;">
+                    <h6>Results:</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width: 15%;">Provider</th>
+                                    <th style="width: 10%;">Status</th>
+                                    <th style="width: 10%;">Time</th>
+                                    <th style="width: 10%;">Duration</th>
+                                    <th>Recognized Text</th>
+                                </tr>
+                            </thead>
+                            <tbody id="stt-results-body"></tbody>
+                        </table>
                     </div>
-                    <div class="bg-light p-3 rounded" id="stt-response" style="white-space: pre-wrap; word-break: break-word; min-height: 60px;"></div>
                 </div>
             </div>
         </div>
@@ -384,20 +416,26 @@
                 const response = await fetch(`${API_BASE}/api/settings/providers`);
                 const data = await response.json();
 
+                // Get STT default
+                let sttDefault = 'whisper';
+                try {
+                    const sttRes = await fetch(`${API_BASE}/api/settings/default-stt-provider`);
+                    const sttData = await sttRes.json();
+                    sttDefault = sttData.default_stt_provider || 'whisper';
+                } catch(e) {}
+
                 document.getElementById('default-provider').textContent = data.default_provider;
 
                 const container = document.getElementById('providers-container');
                 const sttContainer = document.getElementById('stt-providers-container');
                 const testSelect = document.getElementById('test-provider');
-                const sttSelect = document.getElementById('stt-provider');
                 container.innerHTML = '';
                 sttContainer.innerHTML = '';
                 testSelect.innerHTML = '<option value="">Default</option>';
-                sttSelect.innerHTML = '<option value="">Default</option>';
 
                 for (const [id, provider] of Object.entries(data.providers)) {
                     const isStt = provider.service_type === 'stt';
-                    const isDefault = isStt ? false : (id === data.default_provider);
+                    const isDefault = isStt ? (id === sttDefault) : (id === data.default_provider);
                     const cardClass = isDefault ? 'default' : (provider.enabled ? 'enabled' : 'disabled');
                     const canTest = provider.enabled && provider.api_key;
 
@@ -411,7 +449,7 @@
                                             ${!isStt ? `<input type="checkbox" class="form-check-input provider-checkbox" value="${id}" ${canTest ? '' : 'disabled'} title="${canTest ? 'Select for batch test' : 'Enable and set API key first'}">` : ''}
                                             <h5 class="card-title mb-0">${provider.name}</h5>
                                         </div>
-                                        ${isDefault ? '<span class="badge badge-default">Default</span>' : ''}
+                                        ${isDefault ? `<span class="badge badge-default">${isStt ? 'STT Default' : 'Default'}</span>` : ''}
                                     </div>
                                     <p class="card-text small text-muted mb-2">
                                         <strong>Model:</strong> ${provider.model}<br>
@@ -421,6 +459,7 @@
                                     <div class="d-flex gap-2 flex-wrap">
                                         <button class="btn btn-sm btn-outline-primary" onclick="openEdit('${id}')">Edit</button>
                                         ${!isStt && !isDefault ? `<button class="btn btn-sm btn-outline-secondary" onclick="setDefault('${id}')">Set Default</button>` : ''}
+                                        ${isStt && !isDefault ? `<button class="btn btn-sm btn-outline-warning" onclick="setDefaultStt('${id}')">Set Default STT</button>` : ''}
                                         ${!isStt ? `<a href="${docsUrl}" target="_blank" class="btn btn-sm btn-outline-info">Models</a>` : ''}
                                     </div>
                                 </div>
@@ -430,9 +469,6 @@
 
                     if (isStt) {
                         sttContainer.innerHTML += cardHtml;
-                        if (provider.enabled && provider.api_key) {
-                            sttSelect.innerHTML += `<option value="${id}">${provider.name}</option>`;
-                        }
                     } else {
                         container.innerHTML += cardHtml;
                         if (provider.enabled && provider.api_key) {
@@ -860,54 +896,185 @@
             }
         }
 
-        // ── STT Test ──────────────────────────────────────────
+        // ── STT Batch Test + Microphone ─────────────────────────
 
-        async function sttTest() {
+        let mediaRecorder = null;
+        let recordedChunks = [];
+        let recordedBlob = null;
+
+        async function loadSttProviders() {
+            try {
+                const res = await fetch(`${API_BASE}/api/ai/stt/providers`);
+                const data = await res.json();
+                const group = document.getElementById('stt-checkbox-group');
+                group.innerHTML = '';
+                for (const p of data.providers) {
+                    const checked = p.has_api_key ? 'checked' : '';
+                    const disabled = p.has_api_key ? '' : 'disabled';
+                    const defaultBadge = p.is_default ? ' <span class="badge bg-primary">Default</span>' : '';
+                    group.innerHTML += `
+                        <div class="form-check">
+                            <input class="form-check-input stt-checkbox" type="checkbox" value="${p.id}" id="stt-cb-${p.id}" ${checked} ${disabled}>
+                            <label class="form-check-label" for="stt-cb-${p.id}">
+                                ${p.name}${defaultBadge}
+                            </label>
+                        </div>
+                    `;
+                }
+            } catch (e) {
+                console.error('Failed to load STT providers:', e);
+            }
+        }
+
+        function toggleMic() {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                stopMic();
+            } else {
+                startMic();
+            }
+        }
+
+        async function startMic() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                recordedChunks = [];
+                recordedBlob = null;
+                mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+
+                mediaRecorder.ondataavailable = (e) => {
+                    if (e.data.size > 0) recordedChunks.push(e.data);
+                };
+
+                mediaRecorder.onstop = () => {
+                    recordedBlob = new Blob(recordedChunks, { type: 'audio/webm' });
+                    stream.getTracks().forEach(t => t.stop());
+                    document.getElementById('mic-status').textContent = `Recorded: ${(recordedBlob.size / 1024).toFixed(1)}KB`;
+                    // Clear file input so recorded audio is used
+                    document.getElementById('stt-file').value = '';
+                };
+
+                mediaRecorder.start();
+                document.getElementById('mic-btn').classList.replace('btn-outline-danger', 'btn-danger');
+                document.getElementById('mic-btn').innerHTML = '<span id="mic-icon">⏹</span> Stop';
+                document.getElementById('mic-status').textContent = 'Recording...';
+            } catch (e) {
+                alert('Microphone access denied: ' + e.message);
+            }
+        }
+
+        function stopMic() {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+                document.getElementById('mic-btn').classList.replace('btn-danger', 'btn-outline-danger');
+                document.getElementById('mic-btn').innerHTML = '<span id="mic-icon">🎙</span> Record';
+            }
+        }
+
+        function _getAudioFile() {
             const fileInput = document.getElementById('stt-file');
-            const language = document.getElementById('stt-language').value;
-            const provider = document.getElementById('stt-provider').value;
-            const resultDiv = document.getElementById('stt-result');
-            const responseDiv = document.getElementById('stt-response');
-            const metaDiv = document.getElementById('stt-meta');
-            const btn = document.getElementById('stt-btn');
+            if (fileInput.files && fileInput.files.length > 0) {
+                return fileInput.files[0];
+            }
+            if (recordedBlob) {
+                return new File([recordedBlob], 'recording.webm', { type: 'audio/webm' });
+            }
+            return null;
+        }
 
-            if (!fileInput.files || fileInput.files.length === 0) {
-                alert('Please select an audio file');
+        async function sttBatchTest() {
+            const audioFile = _getAudioFile();
+            if (!audioFile) {
+                alert('Please select an audio file or record from microphone');
                 return;
             }
 
+            const checked = document.querySelectorAll('.stt-checkbox:checked');
+            const providers = Array.from(checked).map(c => c.value);
+            if (providers.length === 0) {
+                alert('Please select at least one STT provider');
+                return;
+            }
+
+            const language = document.getElementById('stt-language').value;
+            const btn = document.getElementById('stt-btn');
+            const resultsDiv = document.getElementById('stt-results');
+            const tbody = document.getElementById('stt-results-body');
+
             btn.disabled = true;
-            btn.textContent = 'Recognizing...';
-            resultDiv.style.display = 'none';
+            btn.textContent = `Testing ${providers.length} providers...`;
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center">Testing in progress...</td></tr>';
+            resultsDiv.style.display = 'block';
 
-            try {
+            // Read file once
+            const audioData = await audioFile.arrayBuffer();
+
+            // Send to each provider concurrently
+            const promises = providers.map(async (pid) => {
                 const formData = new FormData();
-                formData.append('file', fileInput.files[0]);
+                formData.append('file', new File([audioData], audioFile.name || 'audio.webm', { type: audioFile.type || 'audio/webm' }));
                 formData.append('language', language);
-                if (provider) formData.append('provider', provider);
-                formData.append('caller', 'admin-dashboard');
+                formData.append('provider', pid);
+                formData.append('caller', 'admin-stt-batch');
 
-                const response = await fetch(`${API_BASE}/api/ai/stt`, {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const data = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(data.error || data.detail || 'STT failed');
+                try {
+                    const res = await fetch(`${API_BASE}/api/ai/stt`, {
+                        method: 'POST',
+                        body: formData,
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || data.detail || 'STT failed');
+                    return { provider: pid, success: true, ...data };
+                } catch (e) {
+                    return { provider: pid, success: false, error: e.message, elapsed_ms: 0 };
                 }
+            });
 
-                responseDiv.textContent = data.text || '(No text recognized)';
-                metaDiv.textContent = `${data.provider} / ${data.model} / ${data.duration_sec}s / ${data.elapsed_ms}ms`;
-                resultDiv.style.display = 'block';
-            } catch (error) {
-                responseDiv.textContent = 'Error: ' + error.message;
-                metaDiv.textContent = '';
-                resultDiv.style.display = 'block';
-            } finally {
-                btn.disabled = false;
-                btn.textContent = 'Recognize';
+            const results = await Promise.all(promises);
+
+            // Render results
+            tbody.innerHTML = results.map(r => `
+                <tr class="${r.success ? 'table-success' : 'table-danger'}">
+                    <td><strong>${r.provider}</strong></td>
+                    <td>${r.success ? '<span class="text-success">OK</span>' : '<span class="text-danger">FAIL</span>'}</td>
+                    <td>${r.elapsed_ms}ms</td>
+                    <td>${r.success ? (r.duration_sec || 0) + 's' : '-'}</td>
+                    <td>
+                        <div style="max-height: 150px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">
+                            ${r.success ? (r.text || '(empty)') : `<span class="text-danger">${r.error}</span>`}
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+
+            // Summary row
+            const ok = results.filter(r => r.success);
+            const fastest = ok.length > 0 ? ok.reduce((a, b) => a.elapsed_ms < b.elapsed_ms ? a : b) : null;
+            tbody.innerHTML += `
+                <tr class="table-light">
+                    <td colspan="2"><strong>Summary</strong></td>
+                    <td colspan="3">
+                        <strong>${ok.length}/${results.length} succeeded</strong>
+                        ${fastest ? ` | Fastest: <strong>${fastest.provider}</strong> (${fastest.elapsed_ms}ms)` : ''}
+                    </td>
+                </tr>
+            `;
+
+            btn.disabled = false;
+            btn.textContent = 'Batch Recognize';
+        }
+
+        async function setDefaultStt(providerId) {
+            try {
+                const res = await fetch(`${API_BASE}/api/settings/default-stt-provider`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider: providerId })
+                });
+                if (!res.ok) throw new Error('Failed to set default STT');
+                loadProviders();
+                loadSttProviders();
+            } catch (e) {
+                alert('Failed: ' + e.message);
             }
         }
 
@@ -923,6 +1090,7 @@
             const testSelect = document.getElementById('test-provider');
             streamSelect.innerHTML = testSelect.innerHTML;
         });
+        loadSttProviders();
         loadUsageStats();
         loadCacheStats();
     </script>

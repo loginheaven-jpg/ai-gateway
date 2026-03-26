@@ -23,8 +23,25 @@ SUPPORTED_FORMATS = {
 # Max file size (default 10MB)
 MAX_FILE_SIZE = int(os.getenv("STT_MAX_FILE_SIZE_MB", "10")) * 1024 * 1024
 
-# Default STT provider
-DEFAULT_STT_PROVIDER = os.getenv("DEFAULT_STT_PROVIDER", "whisper")
+# Default STT provider (env fallback)
+_DEFAULT_STT_ENV = os.getenv("DEFAULT_STT_PROVIDER", "whisper")
+
+
+def _get_default_stt_provider() -> str:
+    """Get default STT provider from DB settings, fallback to env var."""
+    from ..config import USE_POSTGRES, _get_pg_connection, _get_sqlite_connection
+    try:
+        if USE_POSTGRES:
+            conn = _get_pg_connection()
+        else:
+            conn = _get_sqlite_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM settings WHERE key = 'default_stt_provider'")
+        result = cursor.fetchone()
+        conn.close()
+        return result[0] if result else _DEFAULT_STT_ENV
+    except Exception:
+        return _DEFAULT_STT_ENV
 
 # Fallback chains
 STT_FALLBACK = {
@@ -109,7 +126,7 @@ async def speech_to_text(
         )
 
     # Determine provider
-    provider_id = provider or DEFAULT_STT_PROVIDER
+    provider_id = provider or _get_default_stt_provider()
     logger.info(f"[STT] Provider: {provider_id}, Language: {language}, File: {file.filename}, Size: {len(audio_data)}")
 
     # Build attempt list (primary + fallbacks)
@@ -195,6 +212,7 @@ async def speech_to_text(
 async def list_stt_providers():
     """List available STT providers"""
     config = load_config()
+    default_stt = _get_default_stt_provider()
 
     providers = []
     for provider_id, provider in config.providers.items():
@@ -206,7 +224,7 @@ async def list_stt_providers():
             "model": provider.model,
             "enabled": provider.enabled,
             "has_api_key": bool(provider.api_key),
-            "is_default": provider_id == DEFAULT_STT_PROVIDER,
+            "is_default": provider_id == default_stt,
         })
 
-    return {"providers": providers, "default": DEFAULT_STT_PROVIDER}
+    return {"providers": providers, "default": default_stt}

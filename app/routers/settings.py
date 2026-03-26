@@ -111,6 +111,58 @@ async def set_default_provider(request: DefaultProviderRequest):
     return {"success": True, "default_provider": request.provider}
 
 
+@router.put("/default-stt-provider")
+async def set_default_stt_provider(request: DefaultProviderRequest):
+    """Set the default STT provider"""
+    config = load_config()
+
+    if request.provider not in config.providers:
+        raise HTTPException(status_code=404, detail=f"Provider not found: {request.provider}")
+
+    if config.providers[request.provider].service_type != "stt":
+        raise HTTPException(status_code=400, detail=f"Not an STT provider: {request.provider}")
+
+    # Save to settings table
+    from ..config import USE_POSTGRES, _get_pg_connection, _get_sqlite_connection
+    if USE_POSTGRES:
+        conn = _get_pg_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO settings (key, value) VALUES ('default_stt_provider', %s)
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+        ''', (request.provider,))
+    else:
+        conn = _get_sqlite_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO settings (key, value) VALUES ('default_stt_provider', ?)
+        ''', (request.provider,))
+    conn.commit()
+    conn.close()
+
+    return {"success": True, "default_stt_provider": request.provider}
+
+
+@router.get("/default-stt-provider")
+async def get_default_stt_provider():
+    """Get the default STT provider"""
+    import os
+    from ..config import USE_POSTGRES, _get_pg_connection, _get_sqlite_connection
+    try:
+        if USE_POSTGRES:
+            conn = _get_pg_connection()
+        else:
+            conn = _get_sqlite_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM settings WHERE key = 'default_stt_provider'")
+        result = cursor.fetchone()
+        conn.close()
+        default = result[0] if result else os.getenv("DEFAULT_STT_PROVIDER", "whisper")
+    except Exception:
+        default = os.getenv("DEFAULT_STT_PROVIDER", "whisper")
+    return {"default_stt_provider": default}
+
+
 def mask_api_key(api_key: str) -> str:
     """Mask API key for display (show first 8 and last 4 characters)"""
     if not api_key:
