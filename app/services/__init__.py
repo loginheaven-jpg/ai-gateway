@@ -6,6 +6,7 @@ from .moonshot import MoonshotService
 from .perplexity import PerplexityService
 from .stt_base import STTService
 from .whisper import WhisperService
+from .clova_csr import ClovaCsrService
 from .clova_stt import ClovaSttService
 
 __all__ = [
@@ -17,5 +18,6 @@ __all__ = [
     "PerplexityService",
     "STTService",
     "WhisperService",
+    "ClovaCsrService",
     "ClovaSttService",
 ]

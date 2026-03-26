@@ -16,7 +16,12 @@ LANGUAGE_MAP = {
 
 
 class ClovaSttService(STTService):
-    """Naver CLOVA Speech Long STT Service"""
+    """Naver CLOVA Speech Long STT Service.
+
+    Authentication: X-CLOVASPEECH-API-KEY (single key).
+    Max audio: 80 minutes.
+    Endpoint: {CLOVA_INVOKE_URL}/recognizer/upload
+    """
 
     async def recognize(
         self,
@@ -69,14 +74,14 @@ class ClovaSttService(STTService):
                 last_segment = segments[-1]
                 duration_sec = last_segment.get("end", 0) / 1000.0  # ms to sec
 
-            logger.info(f"[CLOVA] Recognized: {len(text)} chars, Duration: {duration_sec}s")
+            logger.info(f"[CLOVA-SPEECH] Recognized: {len(text)} chars, Duration: {duration_sec}s")
 
             return {
                 "text": text,
                 "language": language,
                 "duration_sec": round(duration_sec, 1),
-                "provider": "clova",
-                "model": "clova-speech"
+                "provider": "clova-speech",
+                "model": "clova-speech-long"
             }
 
         except Exception as e:

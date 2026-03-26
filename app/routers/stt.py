@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from ..config import load_config, get_provider
 from ..usage import log_usage
-from ..services import WhisperService, ClovaSttService
+from ..services import WhisperService, ClovaSttService, ClovaCsrService
 
 logger = logging.getLogger(__name__)
 
@@ -28,14 +28,16 @@ DEFAULT_STT_PROVIDER = os.getenv("DEFAULT_STT_PROVIDER", "whisper")
 
 # Fallback chains
 STT_FALLBACK = {
-    "whisper": ["clova"],
-    "clova": ["whisper"],
+    "whisper": ["clova-csr", "clova-speech"],
+    "clova-csr": ["whisper", "clova-speech"],
+    "clova-speech": ["whisper", "clova-csr"],
 }
 
 # STT service factory
 STT_SERVICE_MAP = {
     "whisper": WhisperService,
-    "clova": ClovaSttService,
+    "clova-csr": ClovaCsrService,
+    "clova-speech": ClovaSttService,
 }
 
 

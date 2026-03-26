@@ -37,7 +37,8 @@ ai-gateway/
 │       ├── moonshot.py       # Moonshot Kimi
 │       ├── perplexity.py     # Perplexity (검색 특화)
 │       ├── whisper.py        # OpenAI Whisper (STT)
-│       └── clova_stt.py      # Naver CLOVA Speech Long (STT)
+│       ├── clova_csr.py      # Naver CLOVA CSR (STT, 단시간)
+│       └── clova_stt.py      # Naver CLOVA Speech Long (STT, 장시간)
 ├── frontend/
 │   └── admin.html            # 관리자 대시보드 (통계/캐시/스트리밍 UI 포함)
 ├── Procfile                  # Heroku 배포 설정
@@ -58,10 +59,11 @@ ai-gateway/
 
 ## STT Providers (Speech-to-Text)
 
-| Provider ID | 이름 | 기본 모델 | 용도 |
-|-------------|------|-----------|------|
-| `whisper` | Whisper (OpenAI) | whisper-1 | 범용 음성인식 (다국어) |
-| `clova` | CLOVA Speech (Naver) | clova-speech | 한국어 특화 음성인식 |
+| Provider ID | 이름 | 기본 모델 | 최대 길이 | 용도 |
+|-------------|------|-----------|-----------|------|
+| `whisper` | Whisper (OpenAI) | whisper-1 | 25MB | 범용 음성인식 (다국어) |
+| `clova-csr` | CLOVA CSR (Naver, Short) | clova-csr | 60초 | 한국어 특화, 빠른 인식 |
+| `clova-speech` | CLOVA Speech (Naver, Long) | clova-speech-long | 80분 | 장시간 오디오, 화자분리 |
 
 ---
 
@@ -372,10 +374,11 @@ JSON 설정 가져오기
 
 **Fallback 체인:**
 
-| Primary | Fallback |
-|---------|----------|
-| whisper | clova |
-| clova | whisper |
+| Primary | Fallback 순서 |
+|---------|---------------|
+| whisper | clova-csr → clova-speech |
+| clova-csr | whisper → clova-speech |
+| clova-speech | whisper → clova-csr |
 
 **클라이언트 호출 예시 (JavaScript):**
 
@@ -496,7 +499,9 @@ curl -X POST https://<gateway-url>/api/ai/chat \
 | `PERPLEXITY_MODEL` | Perplexity 모델 | sonar-pro |
 | `DEFAULT_AI_PROVIDER` | 기본 Chat 프로바이더 | claude-sonnet |
 | `DATABASE_URL` | PostgreSQL 연결 URL | (SQLite fallback) |
-| `CLOVA_API_KEY` | Naver CLOVA Speech API 키 | - |
-| `CLOVA_INVOKE_URL` | CLOVA Speech 엔드포인트 URL | - |
+| `CLOVA_CSR_CLIENT_ID` | CLOVA CSR Client ID | - |
+| `CLOVA_CSR_CLIENT_SECRET` | CLOVA CSR Client Secret | - |
+| `CLOVA_SPEECH_SECRET_KEY` | CLOVA Speech Long Secret Key | - |
+| `CLOVA_SPEECH_INVOKE_URL` | CLOVA Speech Long Invoke URL | - |
 | `DEFAULT_STT_PROVIDER` | 기본 STT 프로바이더 | whisper |
 | `STT_MAX_FILE_SIZE_MB` | STT 최대 파일 크기 | 10 |

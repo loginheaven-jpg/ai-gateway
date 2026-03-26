@@ -175,11 +175,19 @@ def _get_default_providers():
             enabled=True,
             service_type="stt"
         ),
-        "clova": ProviderConfig(
-            name="CLOVA Speech (Naver)",
-            api_key=os.getenv("CLOVA_API_KEY", ""),
-            model="clova-speech",
-            base_url=os.getenv("CLOVA_INVOKE_URL", ""),
+        "clova-csr": ProviderConfig(
+            name="CLOVA CSR (Naver, Short)",
+            api_key=f"{os.getenv('CLOVA_CSR_CLIENT_ID', '')}:{os.getenv('CLOVA_CSR_CLIENT_SECRET', '')}",
+            model="clova-csr",
+            base_url="https://naveropenapi.apigw.ntruss.com",
+            enabled=True,
+            service_type="stt"
+        ),
+        "clova-speech": ProviderConfig(
+            name="CLOVA Speech (Naver, Long)",
+            api_key=os.getenv("CLOVA_SPEECH_SECRET_KEY", ""),
+            model="clova-speech-long",
+            base_url=os.getenv("CLOVA_SPEECH_INVOKE_URL", ""),
             enabled=True,
             service_type="stt"
         )
