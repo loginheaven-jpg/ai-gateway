@@ -2,7 +2,7 @@
 
 ## Overview
 
-AI Gateway는 여러 AI 프로바이더(Claude, OpenAI, Gemini, Moonshot, Perplexity)를 통합 관리하는 중앙 집중형 게이트웨이 서비스입니다. 다른 서비스에서 단일 API로 다양한 AI 모델을 호출할 수 있습니다.
+AI Gateway는 여러 AI 프로바이더(Claude, OpenAI, Gemini, Moonshot, Perplexity)와 STT 프로바이더(Whisper, CLOVA Speech)를 통합 관리하는 중앙 집중형 게이트웨이 서비스입니다. 다른 서비스에서 단일 API로 다양한 AI 모델과 음성인식(STT)을 호출할 수 있습니다.
 
 ## Tech Stack
 
@@ -26,14 +26,18 @@ ai-gateway/
 │   ├── cache.py              # 인메모리 응답 캐시 (TTL 기반)
 │   ├── routers/
 │   │   ├── ai.py             # /api/ai/* - 채팅/스트리밍 API (fallback 지원)
+│   │   ├── stt.py            # /api/ai/stt - STT API (Whisper/CLOVA, fallback)
 │   │   └── settings.py       # /api/settings/* - 설정/통계/캐시 관리
 │   └── services/
 │       ├── base.py           # AIService 추상 클래스 (chat + stream)
+│       ├── stt_base.py       # STTService 추상 클래스 (recognize)
 │       ├── claude.py         # Anthropic Claude (Sonnet/Haiku, 네이티브 스트리밍)
 │       ├── chatgpt.py        # OpenAI GPT (네이티브 스트리밍)
 │       ├── gemini.py         # Google Gemini (Pro/Flash)
 │       ├── moonshot.py       # Moonshot Kimi
-│       └── perplexity.py     # Perplexity (검색 특화)
+│       ├── perplexity.py     # Perplexity (검색 특화)
+│       ├── whisper.py        # OpenAI Whisper (STT)
+│       └── clova_stt.py      # Naver CLOVA Speech Long (STT)
 ├── frontend/
 │   └── admin.html            # 관리자 대시보드 (통계/캐시/스트리밍 UI 포함)
 ├── Procfile                  # Heroku 배포 설정
@@ -51,6 +55,13 @@ ai-gateway/
 | `gemini-flash` | Gemini Flash (Google) | gemini-2.5-flash | 빠른 응답 |
 | `moonshot` | Moonshot (Kimi) | kimi-k2-0905-preview | 중국어 특화 |
 | `perplexity` | Perplexity | sonar-pro | 웹 검색 + AI 답변 |
+
+## STT Providers (Speech-to-Text)
+
+| Provider ID | 이름 | 기본 모델 | 용도 |
+|-------------|------|-----------|------|
+| `whisper` | Whisper (OpenAI) | whisper-1 | 범용 음성인식 (다국어) |
+| `clova` | CLOVA Speech (Naver) | clova-speech | 한국어 특화 음성인식 |
 
 ---
 
@@ -320,7 +331,95 @@ JSON 설정 가져오기
 
 ---
 
-## 3. System Endpoints
+## 3. STT API (Speech-to-Text)
+
+### `POST /api/ai/stt`
+
+오디오 파일을 텍스트로 변환합니다. Whisper ↔ CLOVA 간 **Fallback**이 자동 적용됩니다.
+
+**Request (multipart/form-data):**
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `file` | File | O | 오디오 파일 (webm, mp4, mp3, wav, ogg, m4a, flac) |
+| `language` | string | X | 언어 코드 (기본: `ko`). ISO 639-1 |
+| `provider` | string | X | STT 프로바이더 (기본: `DEFAULT_STT_PROVIDER` 또는 `whisper`) |
+| `caller` | string | X | 호출 서비스 식별자 (예: `prayer-house:encouragement`) |
+
+**Response (200):**
+
+```json
+{
+  "text": "인식된 텍스트",
+  "language": "ko",
+  "duration_sec": 12.5,
+  "provider": "whisper",
+  "model": "whisper-1",
+  "elapsed_ms": 3200
+}
+```
+
+**Error Response (4xx/5xx):**
+
+```json
+{
+  "error": "File too large: 15000000 bytes (max 10MB)",
+  "code": "FILE_TOO_LARGE"
+}
+```
+
+**에러 코드:** `UNSUPPORTED_FORMAT`, `FILE_TOO_LARGE`, `INVALID_FILE`, `PROVIDER_ERROR`
+
+**Fallback 체인:**
+
+| Primary | Fallback |
+|---------|----------|
+| whisper | clova |
+| clova | whisper |
+
+**클라이언트 호출 예시 (JavaScript):**
+
+```javascript
+const formData = new FormData();
+formData.append('file', audioBlob, 'audio.webm');
+formData.append('language', 'ko');
+formData.append('caller', 'my-service');
+
+const res = await fetch('https://<gateway-url>/api/ai/stt', {
+  method: 'POST',
+  body: formData
+});
+const data = await res.json();
+console.log(data.text);
+```
+
+**cURL:**
+
+```bash
+curl -X POST https://<gateway-url>/api/ai/stt \
+  -F "file=@recording.webm" \
+  -F "language=ko" \
+  -F "caller=test"
+```
+
+---
+
+### `GET /api/ai/stt/providers`
+
+STT 프로바이더 목록을 조회합니다.
+
+```json
+{
+  "providers": [
+    { "id": "whisper", "name": "Whisper (OpenAI)", "model": "whisper-1", "enabled": true, "has_api_key": true, "is_default": true }
+  ],
+  "default": "whisper"
+}
+```
+
+---
+
+## 4. System Endpoints
 
 | Method | Path | 설명 |
 |--------|------|------|
@@ -395,5 +494,9 @@ curl -X POST https://<gateway-url>/api/ai/chat \
 | `MOONSHOT_MODEL` | Moonshot 모델 | kimi-k2-0905-preview |
 | `PERPLEXITY_API_KEY` | Perplexity API 키 | - |
 | `PERPLEXITY_MODEL` | Perplexity 모델 | sonar-pro |
-| `DEFAULT_AI_PROVIDER` | 기본 프로바이더 | claude-sonnet |
+| `DEFAULT_AI_PROVIDER` | 기본 Chat 프로바이더 | claude-sonnet |
 | `DATABASE_URL` | PostgreSQL 연결 URL | (SQLite fallback) |
+| `CLOVA_API_KEY` | Naver CLOVA Speech API 키 | - |
+| `CLOVA_INVOKE_URL` | CLOVA Speech 엔드포인트 URL | - |
+| `DEFAULT_STT_PROVIDER` | 기본 STT 프로바이더 | whisper |
+| `STT_MAX_FILE_SIZE_MB` | STT 최대 파일 크기 | 10 |

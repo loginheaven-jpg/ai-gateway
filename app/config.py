@@ -28,6 +28,7 @@ class ProviderConfig(BaseModel):
     model: str
     base_url: str
     enabled: bool = True
+    service_type: str = "chat"  # "chat" or "stt"
 
 
 class AIConfig(BaseModel):
@@ -66,7 +67,8 @@ def init_db():
                 api_key TEXT NOT NULL,
                 model TEXT NOT NULL,
                 base_url TEXT NOT NULL,
-                enabled INTEGER DEFAULT 1
+                enabled INTEGER DEFAULT 1,
+                service_type TEXT DEFAULT 'chat'
             )
         ''')
         cursor.execute('''
@@ -75,6 +77,11 @@ def init_db():
                 value TEXT
             )
         ''')
+        # Add service_type column if not exists (migration)
+        try:
+            cursor.execute("ALTER TABLE providers ADD COLUMN service_type TEXT DEFAULT 'chat'")
+        except Exception:
+            pass  # Column already exists
         conn.commit()
         conn.close()
     else:
@@ -88,7 +95,8 @@ def init_db():
                 api_key TEXT NOT NULL,
                 model TEXT NOT NULL,
                 base_url TEXT NOT NULL,
-                enabled INTEGER DEFAULT 1
+                enabled INTEGER DEFAULT 1,
+                service_type TEXT DEFAULT 'chat'
             )
         ''')
         cursor.execute('''
@@ -97,6 +105,11 @@ def init_db():
                 value TEXT
             )
         ''')
+        # Add service_type column if not exists (migration)
+        try:
+            cursor.execute("ALTER TABLE providers ADD COLUMN service_type TEXT DEFAULT 'chat'")
+        except Exception:
+            pass  # Column already exists
         conn.commit()
         conn.close()
 
@@ -152,6 +165,23 @@ def _get_default_providers():
             model=os.getenv("PERPLEXITY_MODEL", "sonar-pro"),
             base_url="https://api.perplexity.ai",
             enabled=True
+        ),
+        # STT Providers
+        "whisper": ProviderConfig(
+            name="Whisper (OpenAI)",
+            api_key=os.getenv("OPENAI_API_KEY", ""),
+            model="whisper-1",
+            base_url="https://api.openai.com/v1",
+            enabled=True,
+            service_type="stt"
+        ),
+        "clova": ProviderConfig(
+            name="CLOVA Speech (Naver)",
+            api_key=os.getenv("CLOVA_API_KEY", ""),
+            model="clova-speech",
+            base_url=os.getenv("CLOVA_INVOKE_URL", ""),
+            enabled=True,
+            service_type="stt"
         )
     }
 
@@ -177,7 +207,7 @@ def _load_from_db() -> Optional[AIConfig]:
             return None
 
         # Load providers
-        cursor.execute("SELECT id, name, api_key, model, base_url, enabled FROM providers")
+        cursor.execute("SELECT id, name, api_key, model, base_url, enabled, service_type FROM providers")
         providers = {}
         for row in cursor.fetchall():
             providers[row[0]] = ProviderConfig(
@@ -185,7 +215,8 @@ def _load_from_db() -> Optional[AIConfig]:
                 api_key=row[2],
                 model=row[3],
                 base_url=row[4],
-                enabled=bool(row[5])
+                enabled=bool(row[5]),
+                service_type=row[6] or "chat"
             )
 
         # Load default provider
@@ -216,16 +247,16 @@ def _save_to_db(config: AIConfig):
     for provider_id, provider in config.providers.items():
         if USE_POSTGRES:
             cursor.execute('''
-                INSERT INTO providers (id, name, api_key, model, base_url, enabled)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO providers (id, name, api_key, model, base_url, enabled, service_type)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
             ''', (provider_id, provider.name, provider.api_key, provider.model,
-                  provider.base_url, 1 if provider.enabled else 0))
+                  provider.base_url, 1 if provider.enabled else 0, provider.service_type))
         else:
             cursor.execute('''
-                INSERT INTO providers (id, name, api_key, model, base_url, enabled)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO providers (id, name, api_key, model, base_url, enabled, service_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             ''', (provider_id, provider.name, provider.api_key, provider.model,
-                  provider.base_url, 1 if provider.enabled else 0))
+                  provider.base_url, 1 if provider.enabled else 0, provider.service_type))
 
     # Save default provider
     if USE_POSTGRES:

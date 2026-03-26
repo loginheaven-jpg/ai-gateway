@@ -31,7 +31,8 @@ async def get_all_providers():
             "api_key": mask_api_key(provider.api_key),
             "model": provider.model,
             "base_url": provider.base_url,
-            "enabled": provider.enabled
+            "enabled": provider.enabled,
+            "service_type": provider.service_type
         }
 
     return {

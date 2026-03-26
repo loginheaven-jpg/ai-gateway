@@ -5,7 +5,7 @@ from fastapi.responses import FileResponse
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from .routers import ai_router, settings_router
+from .routers import ai_router, settings_router, stt_router
 from .config import init_db, load_config
 from .usage import init_usage_table
 
@@ -45,6 +45,7 @@ app.add_middleware(
 # Include routers
 app.include_router(ai_router)
 app.include_router(settings_router)
+app.include_router(stt_router)
 
 # Serve static files (frontend)
 frontend_path = Path(__file__).parent.parent / "frontend"
