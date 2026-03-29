@@ -30,6 +30,7 @@ FALLBACK_CHAINS = {
     "claude-sonnet": ["claude-haiku", "chatgpt", "gemini-pro"],
     "claude-haiku": ["claude-sonnet", "chatgpt", "gemini-flash"],
     "chatgpt": ["claude-sonnet", "gemini-pro"],
+    "openai": ["claude-sonnet", "gemini-pro"],  # legacy alias
     "gemini-pro": ["gemini-flash", "claude-sonnet", "chatgpt"],
     "gemini-flash": ["gemini-pro", "claude-haiku", "chatgpt"],
     "moonshot": ["claude-sonnet", "chatgpt"],
@@ -83,6 +84,7 @@ def get_ai_service(provider_id: str):
         "claude-sonnet": ClaudeService,
         "claude-haiku": ClaudeService,
         "chatgpt": ChatGPTService,
+        "openai": ChatGPTService,  # legacy alias
         "gemini-pro": GeminiService,
         "gemini-flash": GeminiService,
         "moonshot": MoonshotService,
