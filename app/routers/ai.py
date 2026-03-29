@@ -38,9 +38,20 @@ FALLBACK_CHAINS = {
 }
 
 
+def _has_image_content(messages: List[Dict[str, Any]]) -> bool:
+    """Check if any message contains image content blocks."""
+    for msg in messages:
+        content = msg.get("content")
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "image":
+                    return True
+    return False
+
+
 class ChatRequest(BaseModel):
     provider: Optional[str] = None  # If None, use default
-    messages: List[Dict[str, str]]
+    messages: List[Dict[str, Any]]
     system_prompt: Optional[str] = None
     max_tokens: int = 4096
     temperature: float = 0.7
@@ -151,8 +162,9 @@ async def chat(request: ChatRequest):
 
     logger.info(f"[CHAT] Provider: {provider_id}, Messages: {len(request.messages)}")
 
-    # Check cache
-    if request.use_cache:
+    # Check cache (skip for vision requests - images are too large to cache)
+    has_images = _has_image_content(request.messages)
+    if request.use_cache and not has_images:
         cached = response_cache.get(
             provider_id, request.messages, request.system_prompt,
             request.max_tokens, request.temperature
@@ -172,8 +184,8 @@ async def chat(request: ChatRequest):
         try:
             result = await _try_provider(pid, request)
 
-            # Cache the result
-            if request.use_cache:
+            # Cache the result (skip for vision requests)
+            if request.use_cache and not has_images:
                 response_cache.set(
                     provider_id, request.messages, request.system_prompt,
                     request.max_tokens, request.temperature, result

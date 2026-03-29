@@ -8,11 +8,16 @@ class MoonshotService(AIService):
 
     async def chat(
         self,
-        messages: List[Dict[str, str]],
+        messages: List[Dict[str, Any]],
         system_prompt: Optional[str] = None,
         max_tokens: int = 4096,
         temperature: float = 0.7
     ) -> Dict[str, Any]:
+        # Moonshot does not support vision/image content
+        for msg in messages:
+            if isinstance(msg.get("content"), list):
+                raise Exception("Moonshot does not support vision/image content. Use claude-sonnet, chatgpt, or gemini-pro instead.")
+
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}"

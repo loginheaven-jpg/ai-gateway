@@ -10,9 +10,32 @@ logger = logging.getLogger(__name__)
 class ChatGPTService(AIService):
     """ChatGPT (OpenAI) AI Service"""
 
+    def _transform_messages_for_openai(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Transform Claude-format image blocks to OpenAI format."""
+        transformed = []
+        for msg in messages:
+            content = msg.get("content")
+            if isinstance(content, list):
+                new_blocks = []
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "image":
+                        source = block.get("source", {})
+                        media_type = source.get("media_type", "image/jpeg")
+                        data = source.get("data", "")
+                        new_blocks.append({
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{media_type};base64,{data}"}
+                        })
+                    else:
+                        new_blocks.append(block)
+                transformed.append({"role": msg["role"], "content": new_blocks})
+            else:
+                transformed.append(msg)
+        return transformed
+
     async def chat(
         self,
-        messages: List[Dict[str, str]],
+        messages: List[Dict[str, Any]],
         system_prompt: Optional[str] = None,
         max_tokens: int = 4096,
         temperature: float = 0.7
@@ -27,6 +50,9 @@ class ChatGPTService(AIService):
                 base_url=self.base_url,
                 timeout=httpx.Timeout(300.0, connect=60.0)  # 5 min timeout
             )
+
+            # Transform image blocks to OpenAI format
+            messages = self._transform_messages_for_openai(messages)
 
             # Prepend system message if provided
             all_messages = []
@@ -64,7 +90,7 @@ class ChatGPTService(AIService):
 
     async def stream(
         self,
-        messages: List[Dict[str, str]],
+        messages: List[Dict[str, Any]],
         system_prompt: Optional[str] = None,
         max_tokens: int = 4096,
         temperature: float = 0.7
@@ -74,6 +100,8 @@ class ChatGPTService(AIService):
             base_url=self.base_url,
             timeout=httpx.Timeout(300.0, connect=60.0)
         )
+
+        messages = self._transform_messages_for_openai(messages)
 
         all_messages = []
         if system_prompt:

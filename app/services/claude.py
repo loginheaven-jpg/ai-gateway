@@ -12,7 +12,7 @@ class ClaudeService(AIService):
 
     async def chat(
         self,
-        messages: List[Dict[str, str]],
+        messages: List[Dict[str, Any]],
         system_prompt: Optional[str] = None,
         max_tokens: int = 4096,
         temperature: float = 0.7
@@ -76,7 +76,7 @@ class ClaudeService(AIService):
 
     async def stream(
         self,
-        messages: List[Dict[str, str]],
+        messages: List[Dict[str, Any]],
         system_prompt: Optional[str] = None,
         max_tokens: int = 4096,
         temperature: float = 0.7

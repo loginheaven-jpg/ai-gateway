@@ -2,7 +2,7 @@
 
 ## 개요
 
-AI Gateway는 AI 채팅과 음성인식(STT)을 **단일 API**로 제공합니다.
+AI Gateway는 AI 채팅, Vision(이미지 분석), 음성인식(STT)을 **단일 API**로 제공합니다.
 각 서비스는 API Key 없이, Gateway URL만으로 모든 AI 기능을 호출할 수 있습니다.
 
 ```
@@ -165,7 +165,87 @@ while (true) {
 
 ---
 
-## 3. STT API — 음성 → 텍스트
+## 3. Vision API — 이미지 분석
+
+기존 Chat API(`/api/ai/chat`)에 이미지를 포함하여 호출합니다. **별도 엔드포인트 없이** content 배열로 전달합니다.
+
+### Vision 지원 프로바이더
+
+| 별칭 | Vision 지원 |
+|------|------------|
+| `claude-sonnet` | O |
+| `claude-haiku` | O (권장 — 빠르고 저렴) |
+| `chatgpt` | O |
+| `gemini-pro` | O |
+| `gemini-flash` | O |
+| `moonshot` | X (자동 fallback) |
+| `perplexity` | X (자동 fallback) |
+
+### 호출 예시 (영수증 분석)
+
+```typescript
+const imageBase64 = await fileToBase64(receiptFile);  // 300KB 이하 권장
+
+const res = await fetch(`${AI_GATEWAY_URL}/api/ai/chat`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    provider: 'claude-haiku',
+    messages: [{
+      role: 'user',
+      content: [
+        {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: 'image/jpeg',
+            data: imageBase64
+          }
+        },
+        {
+          type: 'text',
+          text: '이 영수증의 금액, 가맹점명, 날짜를 JSON으로 추출해줘'
+        }
+      ]
+    }],
+    max_tokens: 500,
+    caller: 'church-finance:receipt-verify'
+  })
+});
+
+const data = await res.json();
+console.log(data.content);
+// {"amount": 25000, "store": "이마트", "date": "2026-03-28"}
+```
+
+### cURL
+
+```bash
+# IMAGE_B64 변수에 base64 인코딩된 이미지 데이터
+curl -X POST https://ai-gateway20251125.up.railway.app/api/ai/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "provider": "claude-haiku",
+    "messages": [{
+      "role": "user",
+      "content": [
+        {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "'$IMAGE_B64'"}},
+        {"type": "text", "text": "이 이미지를 설명해줘"}
+      ]
+    }],
+    "max_tokens": 500
+  }'
+```
+
+### 주의사항
+- 이미지는 **base64**로 인코딩하여 전달 (URL 방식 미지원)
+- 이미지 크기: **300KB 이하** 권장 (압축 후)
+- Vision 요청은 **캐시되지 않음** (자동 스킵)
+- Moonshot/Perplexity로 보내면 자동으로 Claude/ChatGPT로 fallback
+
+---
+
+## 4. STT API — 음성 → 텍스트
 
 ### 엔드포인트
 
@@ -245,7 +325,7 @@ const res = await fetch(`${AI_GATEWAY_URL}/api/ai/stt`, {
 
 ---
 
-## 4. 재사용 유틸 함수 (TypeScript)
+## 5. 재사용 유틸 함수 (TypeScript)
 
 서비스 코드에 복사하여 사용하세요.
 
@@ -376,7 +456,7 @@ const { text } = await callSTT(audioBlob, {
 
 ---
 
-## 5. Python 연동
+## 6. Python 연동
 
 ```python
 import requests
@@ -433,7 +513,7 @@ print(result["text"])
 
 ---
 
-## 6. cURL 예시
+## 7. cURL 예시
 
 ### Chat
 
@@ -465,7 +545,7 @@ curl -X POST https://ai-gateway20251125.up.railway.app/api/ai/stt \
 
 ---
 
-## 7. 에러 처리
+## 8. 에러 처리
 
 ### Chat 에러
 
@@ -488,7 +568,7 @@ curl -X POST https://ai-gateway20251125.up.railway.app/api/ai/stt \
 
 ---
 
-## 8. 요약
+## 9. 요약
 
 | 기능 | 엔드포인트 | provider 미지정 시 |
 |------|-----------|-------------------|

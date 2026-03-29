@@ -1,5 +1,6 @@
 from google import genai
 from google.genai import types
+import base64
 import logging
 from typing import List, Dict, Any, Optional
 from .base import AIService
@@ -17,7 +18,7 @@ class GeminiService(AIService):
 
     async def chat(
         self,
-        messages: List[Dict[str, str]],
+        messages: List[Dict[str, Any]],
         system_prompt: Optional[str] = None,
         max_tokens: int = 4096,
         temperature: float = 0.7
@@ -42,14 +43,35 @@ class GeminiService(AIService):
             if not content:
                 continue
 
+            # Build parts from content (string or multimodal array)
+            parts = []
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict):
+                        if block.get("type") == "text":
+                            parts.append(types.Part(text=block.get("text", "")))
+                        elif block.get("type") == "image":
+                            source = block.get("source", {})
+                            media_type = source.get("media_type", "image/jpeg")
+                            data_b64 = source.get("data", "")
+                            image_bytes = base64.b64decode(data_b64)
+                            parts.append(types.Part(
+                                inline_data=types.Blob(
+                                    mime_type=media_type,
+                                    data=image_bytes
+                                )
+                            ))
+            else:
+                parts.append(types.Part(text=content))
+
+            if not parts:
+                continue
+
             # Merge if same role as previous
             if contents and contents[-1].role == role:
-                contents[-1].parts[0].text += f"\n\n{content}"
+                contents[-1].parts.extend(parts)
             else:
-                contents.append(types.Content(
-                    role=role,
-                    parts=[types.Part(text=content)]
-                ))
+                contents.append(types.Content(role=role, parts=parts))
 
         # Generation config
         generation_config = types.GenerateContentConfig(
