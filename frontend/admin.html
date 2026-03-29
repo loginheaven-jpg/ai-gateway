@@ -44,84 +44,6 @@
             <!-- Provider cards will be loaded here -->
         </div>
 
-        <!-- STT Providers Grid -->
-        <h5 class="mt-4 mb-3">STT Providers (Speech-to-Text)</h5>
-        <div class="row g-4" id="stt-providers-container">
-            <!-- STT provider cards will be loaded here -->
-        </div>
-
-        <!-- STT Batch Test Section -->
-        <div class="card mt-4">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">STT Batch Test (Speech-to-Text)</h5>
-                <div class="d-flex gap-2">
-                    <button class="btn btn-sm btn-outline-secondary" onclick="document.querySelectorAll('.stt-checkbox').forEach(c=>c.checked=true)">Select All</button>
-                    <button class="btn btn-sm btn-outline-secondary" onclick="document.querySelectorAll('.stt-checkbox').forEach(c=>c.checked=false)">Deselect All</button>
-                </div>
-            </div>
-            <div class="card-body">
-                <!-- Audio Source: File or Microphone -->
-                <div class="row mb-3">
-                    <div class="col-md-5">
-                        <label class="form-label">Audio File</label>
-                        <input type="file" class="form-control" id="stt-file" accept=".webm,.mp4,.mp3,.wav,.ogg,.m4a,.flac,.aac">
-                    </div>
-                    <div class="col-md-1 d-flex align-items-end justify-content-center">
-                        <span class="text-muted">or</span>
-                    </div>
-                    <div class="col-md-3 d-flex align-items-end">
-                        <button class="btn btn-outline-danger w-100" id="mic-btn" onclick="toggleMic()">
-                            <span id="mic-icon">🎙</span> Record
-                        </button>
-                    </div>
-                    <div class="col-md-3 d-flex align-items-end">
-                        <span class="small text-muted" id="mic-status"></span>
-                    </div>
-                </div>
-
-                <!-- Provider Selection + Language + Test Button -->
-                <div class="row mb-3">
-                    <div class="col-md-6">
-                        <label class="form-label">STT Providers (select to compare)</label>
-                        <div class="d-flex gap-3 flex-wrap" id="stt-checkbox-group">
-                            <!-- checkboxes populated by JS -->
-                        </div>
-                    </div>
-                    <div class="col-md-2">
-                        <label class="form-label">Language</label>
-                        <select class="form-select" id="stt-language">
-                            <option value="ko" selected>Korean</option>
-                            <option value="en">English</option>
-                            <option value="ja">Japanese</option>
-                            <option value="zh">Chinese</option>
-                        </select>
-                    </div>
-                    <div class="col-md-4 d-flex align-items-end">
-                        <button class="btn btn-warning w-100" id="stt-btn" onclick="sttBatchTest()">Batch Recognize</button>
-                    </div>
-                </div>
-
-                <!-- Results Table -->
-                <div id="stt-results" style="display: none;">
-                    <h6>Results:</h6>
-                    <div class="table-responsive">
-                        <table class="table table-sm table-bordered">
-                            <thead class="table-light">
-                                <tr>
-                                    <th style="width: 15%;">Provider</th>
-                                    <th style="width: 10%;">Status</th>
-                                    <th style="width: 10%;">Time</th>
-                                    <th style="width: 10%;">Duration</th>
-                                    <th>Recognized Text</th>
-                                </tr>
-                            </thead>
-                            <tbody id="stt-results-body"></tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-
         <!-- Test Section -->
         <div class="card mt-4">
             <div class="card-header">
@@ -218,6 +140,84 @@
                 <div class="mt-3">
                     <div class="bg-dark text-success p-3 rounded" id="stream-output" style="min-height: 100px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; font-family: monospace; font-size: 0.9rem;">
                         Streaming output will appear here...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- STT Providers Grid -->
+        <h5 class="mt-4 mb-3">STT Providers (Speech-to-Text)</h5>
+        <div class="row g-4" id="stt-providers-container">
+            <!-- STT provider cards will be loaded here -->
+        </div>
+
+        <!-- STT Batch Test Section -->
+        <div class="card mt-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">STT Batch Test (Speech-to-Text)</h5>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-secondary" onclick="document.querySelectorAll('.stt-checkbox').forEach(c=>c.checked=true)">Select All</button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="document.querySelectorAll('.stt-checkbox').forEach(c=>c.checked=false)">Deselect All</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <!-- Audio Source: File or Microphone -->
+                <div class="row mb-3">
+                    <div class="col-md-5">
+                        <label class="form-label">Audio File</label>
+                        <input type="file" class="form-control" id="stt-file" accept=".webm,.mp4,.mp3,.wav,.ogg,.m4a,.flac,.aac">
+                    </div>
+                    <div class="col-md-1 d-flex align-items-end justify-content-center">
+                        <span class="text-muted">or</span>
+                    </div>
+                    <div class="col-md-3 d-flex align-items-end">
+                        <button class="btn btn-outline-danger w-100" id="mic-btn" onclick="toggleMic()">
+                            <span id="mic-icon">🎙</span> Record
+                        </button>
+                    </div>
+                    <div class="col-md-3 d-flex align-items-end">
+                        <span class="small text-muted" id="mic-status"></span>
+                    </div>
+                </div>
+
+                <!-- Provider Selection + Language + Test Button -->
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">STT Providers (select to compare)</label>
+                        <div class="d-flex gap-3 flex-wrap" id="stt-checkbox-group">
+                            <!-- checkboxes populated by JS -->
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Language</label>
+                        <select class="form-select" id="stt-language">
+                            <option value="ko" selected>Korean</option>
+                            <option value="en">English</option>
+                            <option value="ja">Japanese</option>
+                            <option value="zh">Chinese</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4 d-flex align-items-end">
+                        <button class="btn btn-warning w-100" id="stt-btn" onclick="sttBatchTest()">Batch Recognize</button>
+                    </div>
+                </div>
+
+                <!-- Results Table -->
+                <div id="stt-results" style="display: none;">
+                    <h6>Results:</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width: 15%;">Provider</th>
+                                    <th style="width: 10%;">Status</th>
+                                    <th style="width: 10%;">Time</th>
+                                    <th style="width: 10%;">Duration</th>
+                                    <th>Recognized Text</th>
+                                </tr>
+                            </thead>
+                            <tbody id="stt-results-body"></tbody>
+                        </table>
                     </div>
                 </div>
             </div>
