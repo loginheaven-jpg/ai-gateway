@@ -27,13 +27,13 @@ router = APIRouter(prefix="/api/ai", tags=["AI"])
 
 
 FALLBACK_CHAINS = {
-    "claude-sonnet": ["claude-haiku", "openai", "gemini-pro"],
-    "claude-haiku": ["claude-sonnet", "openai", "gemini-flash"],
-    "openai": ["claude-sonnet", "gemini-pro"],
-    "gemini-pro": ["gemini-flash", "claude-sonnet", "openai"],
-    "gemini-flash": ["gemini-pro", "claude-haiku", "openai"],
-    "moonshot": ["claude-sonnet", "openai"],
-    "perplexity": ["openai", "claude-sonnet"],
+    "claude-sonnet": ["claude-haiku", "chatgpt", "gemini-pro"],
+    "claude-haiku": ["claude-sonnet", "chatgpt", "gemini-flash"],
+    "chatgpt": ["claude-sonnet", "gemini-pro"],
+    "gemini-pro": ["gemini-flash", "claude-sonnet", "chatgpt"],
+    "gemini-flash": ["gemini-pro", "claude-haiku", "chatgpt"],
+    "moonshot": ["claude-sonnet", "chatgpt"],
+    "perplexity": ["chatgpt", "claude-sonnet"],
 }
 
 
@@ -82,7 +82,7 @@ def get_ai_service(provider_id: str):
     service_map = {
         "claude-sonnet": ClaudeService,
         "claude-haiku": ClaudeService,
-        "openai": ChatGPTService,
+        "chatgpt": ChatGPTService,
         "gemini-pro": GeminiService,
         "gemini-flash": GeminiService,
         "moonshot": MoonshotService,

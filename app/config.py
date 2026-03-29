@@ -131,8 +131,8 @@ def _get_default_providers():
             base_url="https://api.anthropic.com/v1",
             enabled=True
         ),
-        "openai": ProviderConfig(
-            name="GPT (OpenAI)",
+        "chatgpt": ProviderConfig(
+            name="ChatGPT (OpenAI)",
             api_key=os.getenv("OPENAI_API_KEY", ""),
             model=os.getenv("OPENAI_MODEL", "gpt-5.1"),
             base_url="https://api.openai.com/v1",
