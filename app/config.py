@@ -327,6 +327,22 @@ def load_config() -> AIConfig:
     # Try loading from database first
     config = _load_from_db()
     if config:
+        # Auto-merge new default providers not yet in DB
+        defaults = _get_default_providers()
+        added = []
+        for pid, pconfig in defaults.items():
+            if pid not in config.providers:
+                config.providers[pid] = pconfig
+                added.append(pid)
+        if added:
+            _save_to_db(config)
+            print(f"[CONFIG] Auto-added new providers: {added}")
+
+        # Auto-migrate legacy aliases (openai → chatgpt)
+        if "openai" in config.providers and "chatgpt" not in config.providers:
+            config.providers["chatgpt"] = config.providers["openai"]
+            config.providers["chatgpt"].name = "ChatGPT (OpenAI)"
+
         return config
 
     # Try loading from JSON file (for migration)
