@@ -190,6 +190,23 @@ def _get_default_providers():
             base_url=os.getenv("CLOVA_SPEECH_INVOKE_URL", ""),
             enabled=True,
             service_type="stt"
+        ),
+        # Image Generation Providers
+        "dall-e": ProviderConfig(
+            name="DALL-E 3 (OpenAI)",
+            api_key=os.getenv("OPENAI_API_KEY", ""),
+            model="dall-e-3",
+            base_url="https://api.openai.com/v1",
+            enabled=True,
+            service_type="image"
+        ),
+        "imagen": ProviderConfig(
+            name="Imagen 3 (Google)",
+            api_key=os.getenv("GOOGLE_API_KEY", ""),
+            model="imagen-3.0-generate-002",
+            base_url="https://generativelanguage.googleapis.com/v1beta",
+            enabled=True,
+            service_type="image"
         )
     }
 

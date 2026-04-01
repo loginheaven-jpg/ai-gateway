@@ -245,7 +245,81 @@ curl -X POST https://ai-gateway20251125.up.railway.app/api/ai/chat \
 
 ---
 
-## 4. STT API — 음성 → 텍스트
+## 4. Image Generation API — 이미지 생성
+
+### 엔드포인트
+
+```
+POST {AI_GATEWAY_URL}/api/ai/image
+Content-Type: application/json
+```
+
+### 사용 가능한 provider 별칭
+
+| 별칭 | 엔진 | 특징 |
+|------|------|------|
+| `dall-e` | DALL-E 3 (OpenAI) | 범용, 프롬프트 자동 개선 **(기본값)** |
+| `imagen` | Imagen 3 (Google) | 풍경/자연 고품질 |
+
+### 호출 예시
+
+```typescript
+const res = await fetch(`${AI_GATEWAY_URL}/api/ai/image`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    prompt: 'A serene mountain landscape at golden dawn with soft clouds',
+    size: '1080x1350',
+    style: 'natural',
+    caller: 'yebom-card:background'
+  })
+});
+
+const data = await res.json();
+// data.data = base64 이미지 데이터
+// data.media_type = "image/png"
+
+const imgSrc = `data:${data.media_type};base64,${data.data}`;
+```
+
+### 전체 파라미터
+
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| `prompt` | string | **O** | - | 영문 이미지 생성 프롬프트 |
+| `size` | string | X | `1024x1024` | 이미지 크기 |
+| `style` | string | X | `natural` | `natural` / `vivid` / `artistic` |
+| `provider` | string | X | 기본값 | 이미지 엔진 별칭 |
+| `caller` | string | X | - | 호출자 식별 |
+
+### 지원 사이즈
+
+| 사이즈 | DALL-E 3 | Imagen 3 |
+|--------|----------|----------|
+| `1024x1024` | O (1:1) | O (1:1) |
+| `1080x1350` | O → 1024x1792 | O (3:4) |
+| `1792x1024` | O (16:9) | O (16:9) |
+| `1024x1792` | O (9:16) | O (9:16) |
+
+### 응답 형식
+
+```json
+{
+  "data": "iVBORw0KGgoAAAA...",
+  "media_type": "image/png",
+  "provider": "dall-e",
+  "model": "dall-e-3",
+  "size": "1024x1024",
+  "revised_prompt": "A breathtaking serene mountain...",
+  "elapsed_ms": 8500
+}
+```
+
+> `revised_prompt`는 DALL-E 3이 자동 개선한 프롬프트입니다 (Imagen은 null).
+
+---
+
+## 5. STT API — 음성 → 텍스트
 
 ### 엔드포인트
 
@@ -325,7 +399,7 @@ const res = await fetch(`${AI_GATEWAY_URL}/api/ai/stt`, {
 
 ---
 
-## 5. 재사용 유틸 함수 (TypeScript)
+## 6. 재사용 유틸 함수 (TypeScript)
 
 서비스 코드에 복사하여 사용하세요.
 
@@ -456,7 +530,7 @@ const { text } = await callSTT(audioBlob, {
 
 ---
 
-## 6. Python 연동
+## 7. Python 연동
 
 ```python
 import requests
@@ -513,7 +587,7 @@ print(result["text"])
 
 ---
 
-## 7. cURL 예시
+## 8. cURL 예시
 
 ### Chat
 
@@ -545,7 +619,7 @@ curl -X POST https://ai-gateway20251125.up.railway.app/api/ai/stt \
 
 ---
 
-## 8. 에러 처리
+## 9. 에러 처리
 
 ### Chat 에러
 
@@ -568,13 +642,14 @@ curl -X POST https://ai-gateway20251125.up.railway.app/api/ai/stt \
 
 ---
 
-## 9. 요약
+## 10. 요약
 
 | 기능 | 엔드포인트 | provider 미지정 시 |
 |------|-----------|-------------------|
 | AI 채팅 | `POST /api/ai/chat` | 기본 Chat 엔진 (claude-sonnet) |
 | 스트리밍 | `POST /api/ai/chat/stream` | 기본 Chat 엔진 |
 | 음성인식 | `POST /api/ai/stt` | 기본 STT 엔진 (whisper) |
+| 이미지 생성 | `POST /api/ai/image` | 기본 Image 엔진 (dall-e) |
 
 **원칙: provider를 지정하지 않으면 Gateway 기본값이 적용됩니다.**
 기본값은 Admin 대시보드에서 언제든 변경할 수 있으며, 클라이언트 코드 수정은 불필요합니다.

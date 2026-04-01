@@ -65,6 +65,13 @@ ai-gateway/
 | `clova-csr` | CLOVA CSR (Naver, Short) | clova-csr | 60초 | 한국어 특화, 빠른 인식 |
 | `clova-speech` | CLOVA Speech (Naver, Long) | clova-speech-long | 80분 | 장시간 오디오, 화자분리 |
 
+## Image Generation Providers
+
+| Provider ID | 이름 | 기본 모델 | 용도 |
+|-------------|------|-----------|------|
+| `dall-e` | DALL-E 3 (OpenAI) | dall-e-3 | 범용 이미지 생성 **(기본값)** |
+| `imagen` | Imagen 3 (Google) | imagen-3.0-generate-002 | 풍경/자연 고품질 |
+
 ---
 
 # API Specification

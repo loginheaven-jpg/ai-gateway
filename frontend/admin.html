@@ -223,6 +223,63 @@
             </div>
         </div>
 
+        <!-- Image Generation Section -->
+        <h5 class="mt-4 mb-3">Image Generation Providers</h5>
+        <div class="row g-4" id="image-providers-container">
+            <!-- Image provider cards will be loaded here -->
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="mb-0">Image Generation Test</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Prompt (English)</label>
+                        <input type="text" class="form-control" id="img-prompt" value="A serene mountain landscape at golden dawn with soft clouds, peaceful atmosphere">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Size</label>
+                        <select class="form-select" id="img-size">
+                            <option value="1024x1024">1024x1024</option>
+                            <option value="1080x1350">1080x1350 (4:5)</option>
+                            <option value="1792x1024">1792x1024 (16:9)</option>
+                            <option value="1024x1792">1024x1792 (9:16)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Style</label>
+                        <select class="form-select" id="img-style">
+                            <option value="natural">Natural</option>
+                            <option value="vivid">Vivid</option>
+                            <option value="artistic">Artistic</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Provider</label>
+                        <select class="form-select" id="img-provider">
+                            <option value="">Default</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-12 d-flex justify-content-end">
+                        <button class="btn btn-purple" id="img-btn" onclick="generateImage()" style="background: linear-gradient(135deg, #667eea, #764ba2); color: white; border: none; padding: 8px 30px;">Generate Image</button>
+                    </div>
+                </div>
+                <div id="img-result" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label class="form-label mb-0">Generated Image:</label>
+                        <small class="text-muted" id="img-meta"></small>
+                    </div>
+                    <div class="text-center">
+                        <img id="img-output" src="" alt="Generated image" style="max-width: 100%; max-height: 500px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Usage Dashboard Section -->
         <div class="card mt-4">
             <div class="card-header d-flex justify-content-between align-items-center">
@@ -428,13 +485,17 @@
 
                 const container = document.getElementById('providers-container');
                 const sttContainer = document.getElementById('stt-providers-container');
+                const imageContainer = document.getElementById('image-providers-container');
                 const testSelect = document.getElementById('test-provider');
                 container.innerHTML = '';
                 sttContainer.innerHTML = '';
+                imageContainer.innerHTML = '';
                 testSelect.innerHTML = '<option value="">Default</option>';
 
                 for (const [id, provider] of Object.entries(data.providers)) {
                     const isStt = provider.service_type === 'stt';
+                    const isImage = provider.service_type === 'image';
+                    const isChat = !isStt && !isImage;
                     const isDefault = isStt ? (id === sttDefault) : (id === data.default_provider);
                     const cardClass = isDefault ? 'default' : (provider.enabled ? 'enabled' : 'disabled');
                     const canTest = provider.enabled && provider.api_key;
@@ -446,7 +507,7 @@
                                 <div class="card-body">
                                     <div class="d-flex justify-content-between align-items-start mb-2">
                                         <div class="d-flex align-items-center gap-2">
-                                            ${!isStt ? `<input type="checkbox" class="form-check-input provider-checkbox" value="${id}" ${canTest ? '' : 'disabled'} title="${canTest ? 'Select for batch test' : 'Enable and set API key first'}">` : ''}
+                                            ${isChat ? `<input type="checkbox" class="form-check-input provider-checkbox" value="${id}" ${canTest ? '' : 'disabled'} title="${canTest ? 'Select for batch test' : 'Enable and set API key first'}">` : ''}
                                             <h5 class="card-title mb-0">${provider.name}</h5>
                                         </div>
                                         ${isDefault ? `<span class="badge badge-default">${isStt ? 'STT Default' : 'Default'}</span>` : ''}
@@ -458,9 +519,9 @@
                                     </p>
                                     <div class="d-flex gap-2 flex-wrap">
                                         <button class="btn btn-sm btn-outline-primary" onclick="openEdit('${id}')">Edit</button>
-                                        ${!isStt && !isDefault ? `<button class="btn btn-sm btn-outline-secondary" onclick="setDefault('${id}')">Set Default</button>` : ''}
+                                        ${isChat && !isDefault ? `<button class="btn btn-sm btn-outline-secondary" onclick="setDefault('${id}')">Set Default</button>` : ''}
                                         ${isStt && !isDefault ? `<button class="btn btn-sm btn-outline-warning" onclick="setDefaultStt('${id}')">Set Default STT</button>` : ''}
-                                        ${!isStt ? `<a href="${docsUrl}" target="_blank" class="btn btn-sm btn-outline-info">Models</a>` : ''}
+                                        ${isChat ? `<a href="${docsUrl}" target="_blank" class="btn btn-sm btn-outline-info">Models</a>` : ''}
                                     </div>
                                 </div>
                             </div>
@@ -469,6 +530,8 @@
 
                     if (isStt) {
                         sttContainer.innerHTML += cardHtml;
+                    } else if (isImage) {
+                        imageContainer.innerHTML += cardHtml;
                     } else {
                         container.innerHTML += cardHtml;
                         if (provider.enabled && provider.api_key) {
@@ -1078,6 +1141,66 @@
             }
         }
 
+        // ── Image Generation ─────────────────────────────────────
+
+        async function loadImageProviders() {
+            try {
+                const res = await fetch(`${API_BASE}/api/ai/image/providers`);
+                const data = await res.json();
+                const select = document.getElementById('img-provider');
+                select.innerHTML = '<option value="">Default</option>';
+                for (const p of data.providers) {
+                    if (p.has_api_key) {
+                        select.innerHTML += `<option value="${p.id}">${p.name}</option>`;
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to load image providers:', e);
+            }
+        }
+
+        async function generateImage() {
+            const prompt = document.getElementById('img-prompt').value;
+            const size = document.getElementById('img-size').value;
+            const style = document.getElementById('img-style').value;
+            const provider = document.getElementById('img-provider').value;
+            const btn = document.getElementById('img-btn');
+            const resultDiv = document.getElementById('img-result');
+            const imgEl = document.getElementById('img-output');
+            const metaDiv = document.getElementById('img-meta');
+
+            if (!prompt) { alert('Please enter a prompt'); return; }
+
+            btn.disabled = true;
+            btn.textContent = 'Generating...';
+            resultDiv.style.display = 'none';
+
+            try {
+                const body = { prompt, size, style, caller: 'admin-dashboard' };
+                if (provider) body.provider = provider;
+
+                const res = await fetch(`${API_BASE}/api/ai/image`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || data.detail || 'Image generation failed');
+
+                imgEl.src = `data:${data.media_type};base64,${data.data}`;
+                metaDiv.textContent = `${data.provider} / ${data.model} / ${data.size} / ${data.elapsed_ms}ms`;
+                resultDiv.style.display = 'block';
+            } catch (e) {
+                metaDiv.textContent = 'Error: ' + e.message;
+                imgEl.src = '';
+                resultDiv.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Generate Image';
+            }
+        }
+
         // ── Event Listeners & Init ──────────────────────────────
 
         document.getElementById('save-btn').addEventListener('click', saveProvider);
@@ -1091,6 +1214,7 @@
             streamSelect.innerHTML = testSelect.innerHTML;
         });
         loadSttProviders();
+        loadImageProviders();
         loadUsageStats();
         loadCacheStats();
     </script>
