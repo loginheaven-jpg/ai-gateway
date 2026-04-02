@@ -15,8 +15,25 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/ai", tags=["Image"])
 
-# Default image provider
-DEFAULT_IMAGE_PROVIDER = os.getenv("DEFAULT_IMAGE_PROVIDER", "dall-e")
+# Default image provider (env fallback)
+_DEFAULT_IMAGE_ENV = os.getenv("DEFAULT_IMAGE_PROVIDER", "dall-e")
+
+
+def _get_default_image_provider() -> str:
+    """Get default image provider from DB settings, fallback to env var."""
+    from ..config import USE_POSTGRES, _get_pg_connection, _get_sqlite_connection
+    try:
+        if USE_POSTGRES:
+            conn = _get_pg_connection()
+        else:
+            conn = _get_sqlite_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM settings WHERE key = 'default_image_provider'")
+        result = cursor.fetchone()
+        conn.close()
+        return result[0] if result else _DEFAULT_IMAGE_ENV
+    except Exception:
+        return _DEFAULT_IMAGE_ENV
 
 # Fallback chains
 IMAGE_FALLBACK = {
@@ -69,7 +86,7 @@ async def generate_image(request: ImageRequest):
     Generate an image from a text prompt.
     Supports fallback between providers.
     """
-    provider_id = request.provider or DEFAULT_IMAGE_PROVIDER
+    provider_id = request.provider or _get_default_image_provider()
     logger.info(f"[IMAGE] Provider: {provider_id}, Prompt: {request.prompt[:80]}, Size: {request.size}")
 
     # Build attempt list
@@ -143,6 +160,7 @@ async def generate_image(request: ImageRequest):
 async def list_image_providers():
     """List available image generation providers"""
     config = load_config()
+    default_image = _get_default_image_provider()
 
     providers = []
     for provider_id, provider in config.providers.items():
@@ -154,7 +172,7 @@ async def list_image_providers():
             "model": provider.model,
             "enabled": provider.enabled,
             "has_api_key": bool(provider.api_key),
-            "is_default": provider_id == DEFAULT_IMAGE_PROVIDER,
+            "is_default": provider_id == default_image,
         })
 
-    return {"providers": providers, "default": DEFAULT_IMAGE_PROVIDER}
+    return {"providers": providers, "default": default_image}

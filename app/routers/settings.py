@@ -163,6 +163,57 @@ async def get_default_stt_provider():
     return {"default_stt_provider": default}
 
 
+@router.put("/default-image-provider")
+async def set_default_image_provider(request: DefaultProviderRequest):
+    """Set the default Image generation provider"""
+    config = load_config()
+
+    if request.provider not in config.providers:
+        raise HTTPException(status_code=404, detail=f"Provider not found: {request.provider}")
+
+    if config.providers[request.provider].service_type != "image":
+        raise HTTPException(status_code=400, detail=f"Not an Image provider: {request.provider}")
+
+    from ..config import USE_POSTGRES, _get_pg_connection, _get_sqlite_connection
+    if USE_POSTGRES:
+        conn = _get_pg_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO settings (key, value) VALUES ('default_image_provider', %s)
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+        ''', (request.provider,))
+    else:
+        conn = _get_sqlite_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO settings (key, value) VALUES ('default_image_provider', ?)
+        ''', (request.provider,))
+    conn.commit()
+    conn.close()
+
+    return {"success": True, "default_image_provider": request.provider}
+
+
+@router.get("/default-image-provider")
+async def get_default_image_provider():
+    """Get the default Image generation provider"""
+    import os
+    from ..config import USE_POSTGRES, _get_pg_connection, _get_sqlite_connection
+    try:
+        if USE_POSTGRES:
+            conn = _get_pg_connection()
+        else:
+            conn = _get_sqlite_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM settings WHERE key = 'default_image_provider'")
+        result = cursor.fetchone()
+        conn.close()
+        default = result[0] if result else os.getenv("DEFAULT_IMAGE_PROVIDER", "dall-e")
+    except Exception:
+        default = os.getenv("DEFAULT_IMAGE_PROVIDER", "dall-e")
+    return {"default_image_provider": default}
+
+
 def mask_api_key(api_key: str) -> str:
     """Mask API key for display (show first 8 and last 4 characters)"""
     if not api_key:

@@ -481,6 +481,14 @@
                     sttDefault = sttData.default_stt_provider || 'whisper';
                 } catch(e) {}
 
+                // Get Image default
+                let imageDefault = 'dall-e';
+                try {
+                    const imgRes = await fetch(`${API_BASE}/api/settings/default-image-provider`);
+                    const imgData = await imgRes.json();
+                    imageDefault = imgData.default_image_provider || 'dall-e';
+                } catch(e) {}
+
                 document.getElementById('default-provider').textContent = data.default_provider;
 
                 const container = document.getElementById('providers-container');
@@ -496,7 +504,7 @@
                     const isStt = provider.service_type === 'stt';
                     const isImage = provider.service_type === 'image';
                     const isChat = !isStt && !isImage;
-                    const isDefault = isStt ? (id === sttDefault) : (id === data.default_provider);
+                    const isDefault = isStt ? (id === sttDefault) : isImage ? (id === imageDefault) : (id === data.default_provider);
                     const cardClass = isDefault ? 'default' : (provider.enabled ? 'enabled' : 'disabled');
                     const canTest = provider.enabled && provider.api_key;
 
@@ -521,6 +529,7 @@
                                         <button class="btn btn-sm btn-outline-primary" onclick="openEdit('${id}')">Edit</button>
                                         ${isChat && !isDefault ? `<button class="btn btn-sm btn-outline-secondary" onclick="setDefault('${id}')">Set Default</button>` : ''}
                                         ${isStt && !isDefault ? `<button class="btn btn-sm btn-outline-warning" onclick="setDefaultStt('${id}')">Set Default STT</button>` : ''}
+                                        ${isImage && !isDefault ? `<button class="btn btn-sm btn-outline-info" onclick="setDefaultImage('${id}')">Set Default Image</button>` : ''}
                                         ${isChat ? `<a href="${docsUrl}" target="_blank" class="btn btn-sm btn-outline-info">Models</a>` : ''}
                                     </div>
                                 </div>
@@ -1136,6 +1145,21 @@
                 if (!res.ok) throw new Error('Failed to set default STT');
                 loadProviders();
                 loadSttProviders();
+            } catch (e) {
+                alert('Failed: ' + e.message);
+            }
+        }
+
+        async function setDefaultImage(providerId) {
+            try {
+                const res = await fetch(`${API_BASE}/api/settings/default-image-provider`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider: providerId })
+                });
+                if (!res.ok) throw new Error('Failed to set default Image');
+                loadProviders();
+                loadImageProviders();
             } catch (e) {
                 alert('Failed: ' + e.message);
             }
