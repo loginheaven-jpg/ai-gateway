@@ -330,7 +330,14 @@ POST {AI_GATEWAY_URL}/api/ai/image/edit
 Content-Type: application/json
 ```
 
-### 호출 예시
+### 사용 가능한 provider 별칭
+
+| 별칭 | 엔진 | 특징 |
+|------|------|------|
+| `imagen` | Imagen 3 (Vertex AI) | 고품질, 원본 크기 유지 **(기본값)** |
+| `dall-e` | DALL-E 2 (OpenAI) | 1024x1024 정사각형 출력 |
+
+### 기본 호출 (provider 미지정 → 기본값 imagen)
 
 ```typescript
 const imageBase64 = await fileToBase64(photoFile);
@@ -349,17 +356,39 @@ const res = await fetch(`${AI_GATEWAY_URL}/api/ai/image/edit`, {
 const data = await res.json();
 // data.data = 편집된 이미지 (base64)
 // data.regions_found = 탐지된 텍스트 영역 수 (0이면 글자 없음 → 원본 반환)
+// data.provider = 실제 사용된 provider ("imagen" 또는 "dall-e")
 ```
 
-### 파라미터
+### 특정 provider 지정
 
-| 필드 | 타입 | 필수 | 설명 |
-|------|------|------|------|
-| `image` | string | **O** | 원본 이미지 (base64) |
-| `media_type` | string | **O** | `image/jpeg` 또는 `image/png` |
-| `edit_type` | string | O | `remove_text` (현재 유일) |
-| `mask` | string | X | 수동 마스크 (base64 PNG). 제공 시 자동 탐지 건너뜀 |
-| `caller` | string | X | 호출자 식별 |
+```typescript
+// DALL-E 사용
+body: JSON.stringify({
+  image: imageBase64,
+  media_type: 'image/jpeg',
+  edit_type: 'remove_text',
+  provider: 'dall-e'    // ← provider 지정
+})
+
+// Imagen 사용 (기본값이므로 생략 가능)
+body: JSON.stringify({
+  image: imageBase64,
+  media_type: 'image/jpeg',
+  edit_type: 'remove_text',
+  provider: 'imagen'
+})
+```
+
+### 전체 파라미터
+
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| `image` | string | **O** | - | 원본 이미지 (base64) |
+| `media_type` | string | **O** | - | `image/jpeg` 또는 `image/png` |
+| `edit_type` | string | X | `remove_text` | 편집 유형 (현재 `remove_text`만) |
+| `provider` | string | X | 기본값 | `imagen` 또는 `dall-e` |
+| `mask` | string | X | - | 수동 마스크 (base64 PNG). 제공 시 자동 탐지 건너뜀 |
+| `caller` | string | X | - | 호출자 식별 |
 
 ### 응답
 
@@ -369,6 +398,8 @@ const data = await res.json();
   "media_type": "image/png",
   "edit_type": "remove_text",
   "regions_found": 3,
+  "provider": "imagen",
+  "model": "imagen-3.0-capability-001",
   "elapsed_ms": 8500
 }
 ```
@@ -378,7 +409,16 @@ const data = await res.json();
 ### 내부 파이프라인
 1. **Gemini Vision** → 텍스트 영역 bounding box 좌표 탐지
 2. **PIL** → 마스크 이미지 생성
-3. **OpenAI DALL-E 2** → 마스크 기반 inpainting (텍스트 제거)
+3. **Imagen 3 또는 DALL-E 2** → 마스크 기반 inpainting (텍스트 제거)
+
+### provider 비교
+
+| | Imagen 3 | DALL-E 2 |
+|--|----------|----------|
+| 품질 | 높음 | 보통 |
+| 출력 크기 | 원본 유지 | 1024x1024 고정 |
+| 비용 | ~$0.04/장 | ~$0.04/장 |
+| 인프라 | Vertex AI (서비스 계정) | API Key |
 
 ---
 

@@ -287,16 +287,31 @@
             </div>
             <div class="card-body">
                 <div class="row mb-3">
-                    <div class="col-md-6">
+                    <div class="col-md-5">
                         <label class="form-label">Upload Image (with text to remove)</label>
                         <input type="file" class="form-control" id="edit-file" accept="image/jpeg,image/png,image/webp">
                     </div>
-                    <div class="col-md-3 d-flex align-items-end">
+                    <div class="col-md-3">
+                        <label class="form-label">Inpainting Provider</label>
+                        <select class="form-select" id="edit-provider">
+                            <option value="">Default</option>
+                            <option value="imagen">Imagen 3 (Vertex AI)</option>
+                            <option value="dall-e">DALL-E 2 (OpenAI)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
                         <button class="btn btn-danger w-100" id="edit-btn" onclick="editImage()">Remove Text</button>
                     </div>
-                    <div class="col-md-3 d-flex align-items-end">
+                    <div class="col-md-2 d-flex align-items-end">
                         <small class="text-muted" id="edit-status"></small>
                     </div>
+                </div>
+                <div class="mb-3">
+                    <small class="text-muted">
+                        Default: <strong id="edit-default-provider">-</strong>
+                        <button class="btn btn-sm btn-outline-secondary ms-2" onclick="setDefaultImageEdit('imagen')">Set Imagen</button>
+                        <button class="btn btn-sm btn-outline-secondary ms-1" onclick="setDefaultImageEdit('dall-e')">Set DALL-E</button>
+                    </small>
                 </div>
                 <div id="edit-result" style="display: none;">
                     <div class="d-flex justify-content-between align-items-center mb-2">
@@ -1264,6 +1279,28 @@
 
         // ── Image Edit (Text Removal) ────────────────────────────
 
+        async function loadImageEditDefault() {
+            try {
+                const res = await fetch(`${API_BASE}/api/ai/image/edit/providers`);
+                const data = await res.json();
+                document.getElementById('edit-default-provider').textContent = data.default;
+            } catch(e) {}
+        }
+
+        async function setDefaultImageEdit(provider) {
+            try {
+                const res = await fetch(`${API_BASE}/api/settings/default-image-edit-provider`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider })
+                });
+                if (!res.ok) throw new Error('Failed');
+                loadImageEditDefault();
+            } catch(e) {
+                alert('Failed: ' + e.message);
+            }
+        }
+
         async function editImage() {
             const fileInput = document.getElementById('edit-file');
             const btn = document.getElementById('edit-btn');
@@ -1303,6 +1340,7 @@
                         image: base64,
                         media_type: mediaType,
                         edit_type: 'remove_text',
+                        provider: document.getElementById('edit-provider').value || undefined,
                         caller: 'admin-dashboard'
                     })
                 });
@@ -1339,6 +1377,7 @@
         });
         loadSttProviders();
         loadImageProviders();
+        loadImageEditDefault();
         loadUsageStats();
         loadCacheStats();
     </script>

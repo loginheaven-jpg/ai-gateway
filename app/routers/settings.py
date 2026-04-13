@@ -214,6 +214,32 @@ async def get_default_image_provider():
     return {"default_image_provider": default}
 
 
+@router.put("/default-image-edit-provider")
+async def set_default_image_edit_provider(request: DefaultProviderRequest):
+    """Set the default Image Edit provider (imagen or dall-e)"""
+    if request.provider not in ("imagen", "dall-e"):
+        raise HTTPException(status_code=400, detail=f"Invalid image edit provider: {request.provider}. Use 'imagen' or 'dall-e'.")
+
+    from ..config import USE_POSTGRES, _get_pg_connection, _get_sqlite_connection
+    if USE_POSTGRES:
+        conn = _get_pg_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO settings (key, value) VALUES ('default_image_edit_provider', %s)
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+        ''', (request.provider,))
+    else:
+        conn = _get_sqlite_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO settings (key, value) VALUES ('default_image_edit_provider', ?)
+        ''', (request.provider,))
+    conn.commit()
+    conn.close()
+
+    return {"success": True, "default_image_edit_provider": request.provider}
+
+
 def mask_api_key(api_key: str) -> str:
     """Mask API key for display (show first 8 and last 4 characters)"""
     if not api_key:
