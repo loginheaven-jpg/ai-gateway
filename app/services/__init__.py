@@ -11,6 +11,7 @@ from .clova_stt import ClovaSttService
 from .image_base import ImageService
 from .dall_e import DallEService
 from .imagen import ImagenService
+from .image_edit import ImageEditService
 
 __all__ = [
     "AIService",
@@ -26,4 +27,5 @@ __all__ = [
     "ImageService",
     "DallEService",
     "ImagenService",
+    "ImageEditService",
 ]

@@ -176,3 +176,99 @@ async def list_image_providers():
         })
 
     return {"providers": providers, "default": default_image}
+
+
+# ── Image Edit ─────────────────────────────────────────────
+
+class ImageEditRequest(BaseModel):
+    image: str              # base64 encoded image
+    media_type: str         # image/jpeg or image/png
+    edit_type: str = "remove_text"
+    mask: Optional[str] = None  # optional manual mask (base64 PNG)
+    caller: Optional[str] = None
+
+
+@router.post("/image/edit")
+async def edit_image(request: ImageEditRequest):
+    """
+    Edit an image. Currently supports 'remove_text' (text/watermark removal).
+    Uses Gemini Vision for text detection + OpenAI DALL-E for inpainting.
+    """
+    if request.edit_type != "remove_text":
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"Unsupported edit_type: {request.edit_type}. Currently only 'remove_text' is supported.", "code": "UNSUPPORTED_EDIT"}
+        )
+
+    if not request.image:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "No image provided", "code": "INVALID_REQUEST"}
+        )
+
+    # Get API keys from providers
+    config = load_config()
+    google_key = None
+    openai_key = None
+
+    # Get Google API key from any Gemini/Imagen provider
+    for pid in ["gemini-flash", "gemini-pro", "imagen"]:
+        p = config.providers.get(pid)
+        if p and p.api_key:
+            google_key = p.api_key
+            break
+
+    # Get OpenAI API key from chatgpt or dall-e provider
+    for pid in ["dall-e", "chatgpt"]:
+        p = config.providers.get(pid)
+        if p and p.api_key:
+            openai_key = p.api_key
+            break
+
+    if not google_key:
+        return JSONResponse(status_code=400, content={"error": "Google API key not configured (needed for text detection)", "code": "MISSING_KEY"})
+    if not openai_key:
+        return JSONResponse(status_code=400, content={"error": "OpenAI API key not configured (needed for inpainting)", "code": "MISSING_KEY"})
+
+    start_time = time.time()
+    try:
+        from ..services.image_edit import ImageEditService
+        service = ImageEditService(google_api_key=google_key, openai_api_key=openai_key)
+
+        result = await service.remove_text(
+            image_b64=request.image,
+            media_type=request.media_type,
+            mask_b64=request.mask,
+        )
+
+        elapsed_ms = int((time.time() - start_time) * 1000)
+
+        log_usage(
+            provider="image-edit",
+            model="gemini-flash+dall-e-2",
+            input_tokens=len(request.image),
+            output_tokens=result.get("regions_found", 0),
+            elapsed_ms=elapsed_ms,
+            success=True,
+            caller=request.caller,
+        )
+
+        return {
+            **result,
+            "elapsed_ms": elapsed_ms,
+        }
+
+    except Exception as e:
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        log_usage(
+            provider="image-edit",
+            model="",
+            elapsed_ms=elapsed_ms,
+            success=False,
+            error_message=str(e)[:500],
+            caller=request.caller,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e), "code": "EDIT_ERROR"}
+        )

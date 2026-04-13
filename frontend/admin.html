@@ -280,6 +280,43 @@
             </div>
         </div>
 
+        <!-- Image Edit (Text Removal) Section -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="mb-0">Image Edit — Text Removal</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Upload Image (with text to remove)</label>
+                        <input type="file" class="form-control" id="edit-file" accept="image/jpeg,image/png,image/webp">
+                    </div>
+                    <div class="col-md-3 d-flex align-items-end">
+                        <button class="btn btn-danger w-100" id="edit-btn" onclick="editImage()">Remove Text</button>
+                    </div>
+                    <div class="col-md-3 d-flex align-items-end">
+                        <small class="text-muted" id="edit-status"></small>
+                    </div>
+                </div>
+                <div id="edit-result" style="display: none;">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label class="form-label mb-0">Before / After:</label>
+                        <small class="text-muted" id="edit-meta"></small>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 text-center">
+                            <div class="small text-muted mb-1">Original</div>
+                            <img id="edit-before" src="" alt="Original" style="max-width: 100%; max-height: 400px; border-radius: 8px; border: 1px solid #ddd;">
+                        </div>
+                        <div class="col-md-6 text-center">
+                            <div class="small text-muted mb-1">Text Removed</div>
+                            <img id="edit-after" src="" alt="Edited" style="max-width: 100%; max-height: 400px; border-radius: 8px; border: 1px solid #ddd;">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Usage Dashboard Section -->
         <div class="card mt-4">
             <div class="card-header d-flex justify-content-between align-items-center">
@@ -1222,6 +1259,69 @@
             } finally {
                 btn.disabled = false;
                 btn.textContent = 'Generate Image';
+            }
+        }
+
+        // ── Image Edit (Text Removal) ────────────────────────────
+
+        async function editImage() {
+            const fileInput = document.getElementById('edit-file');
+            const btn = document.getElementById('edit-btn');
+            const statusEl = document.getElementById('edit-status');
+            const resultDiv = document.getElementById('edit-result');
+            const beforeImg = document.getElementById('edit-before');
+            const afterImg = document.getElementById('edit-after');
+            const metaDiv = document.getElementById('edit-meta');
+
+            if (!fileInput.files || fileInput.files.length === 0) {
+                alert('Please select an image file');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const mediaType = file.type || 'image/jpeg';
+
+            btn.disabled = true;
+            btn.textContent = 'Processing...';
+            statusEl.textContent = 'Step 1: Detecting text regions...';
+            resultDiv.style.display = 'none';
+
+            try {
+                // Read file as base64
+                const arrayBuffer = await file.arrayBuffer();
+                const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+
+                // Show original
+                beforeImg.src = `data:${mediaType};base64,${base64}`;
+
+                statusEl.textContent = 'Step 2: Removing text (inpainting)...';
+
+                const res = await fetch(`${API_BASE}/api/ai/image/edit`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        image: base64,
+                        media_type: mediaType,
+                        edit_type: 'remove_text',
+                        caller: 'admin-dashboard'
+                    })
+                });
+
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Edit failed');
+
+                afterImg.src = `data:${data.media_type};base64,${data.data}`;
+                metaDiv.textContent = `${data.regions_found} text regions found / ${data.elapsed_ms}ms`;
+                statusEl.textContent = '';
+                resultDiv.style.display = 'block';
+            } catch (e) {
+                metaDiv.textContent = 'Error: ' + e.message;
+                statusEl.textContent = '';
+                afterImg.src = '';
+                resultDiv.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Remove Text';
             }
         }
 
