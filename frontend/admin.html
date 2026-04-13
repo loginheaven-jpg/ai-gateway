@@ -1324,9 +1324,12 @@
             resultDiv.style.display = 'none';
 
             try {
-                // Read file as base64
-                const arrayBuffer = await file.arrayBuffer();
-                const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+                // Read file as base64 (chunk-safe for large files)
+                const base64 = await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result.split(',')[1]);
+                    reader.readAsDataURL(file);
+                });
 
                 // Show original
                 beforeImg.src = `data:${mediaType};base64,${base64}`;
