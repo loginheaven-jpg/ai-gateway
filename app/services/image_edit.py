@@ -102,6 +102,7 @@ class ImageEditService:
                     "edit_type": "remove_text",
                     "regions_found": 0,
                     "provider": provider,
+                    "model": "none (no text found)",
                 }
 
             # Step 2: Generate mask from bounding boxes

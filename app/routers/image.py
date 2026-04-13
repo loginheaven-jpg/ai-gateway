@@ -254,10 +254,10 @@ async def edit_image(request: ImageEditRequest):
             break
 
     if not google_key:
-        return JSONResponse(status_code=400, content={"error": "Google API key not configured (needed for text detection)", "code": "MISSING_KEY"})
+        return JSONResponse(status_code=400, content={"detail": "Google API key not configured (needed for text detection)", "error": "Google API key not configured", "code": "MISSING_KEY"})
 
     if edit_provider == "dall-e" and not openai_key:
-        return JSONResponse(status_code=400, content={"error": "OpenAI API key not configured (needed for DALL-E inpainting)", "code": "MISSING_KEY"})
+        return JSONResponse(status_code=400, content={"detail": "OpenAI API key not configured (needed for DALL-E inpainting)", "error": "OpenAI API key not configured", "code": "MISSING_KEY"})
 
     start_time = time.time()
     try:
@@ -305,7 +305,7 @@ async def edit_image(request: ImageEditRequest):
         )
         return JSONResponse(
             status_code=500,
-            content={"error": str(e), "code": "EDIT_ERROR"}
+            content={"detail": f"Image edit failed: {str(e)}", "error": str(e), "code": "EDIT_ERROR"}
         )
 
 
