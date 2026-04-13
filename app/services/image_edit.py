@@ -19,10 +19,12 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# Prompt for Gemini text detection
+# Prompt for Gemini text detection — generous bounding boxes
 TEXT_DETECTION_PROMPT = (
-    "Detect ALL text regions in this image including signs, watermarks, labels, "
-    "handwriting, printed text, and any visible characters. "
+    "Detect ALL text regions in this image. Include signs, watermarks, labels, logos, "
+    "handwriting, printed text, subtitles, captions, and any visible characters or symbols. "
+    "Make bounding boxes GENEROUS — extend each box well beyond the text edges to fully cover "
+    "shadows, outlines, and decorative elements around the text. "
     "Return a JSON array. Each item: {\"box_2d\": [ymin, xmin, ymax, xmax], \"label\": \"detected text\"}. "
     "Coordinates normalized to 0-1000 scale. "
     "If no text is found, return an empty array []."
@@ -30,8 +32,9 @@ TEXT_DETECTION_PROMPT = (
 
 # Prompt for OpenAI inpainting
 INPAINT_PROMPT = (
-    "Remove all text and fill the area with the surrounding background texture seamlessly. "
-    "The result should look natural as if there was never any text."
+    "Completely remove all text, letters, characters, watermarks, and any writing. "
+    "Fill the entire masked area with the surrounding background texture, colors, and patterns seamlessly. "
+    "The result must look completely natural with absolutely no trace of any text remaining."
 )
 
 
@@ -143,26 +146,63 @@ class ImageEditService:
             logger.error(f"[IMAGE-EDIT] Text detection failed: {type(e).__name__}: {e}")
             raise Exception(f"Text detection failed: {e}")
 
+    def _merge_overlapping_boxes(self, boxes: List[Dict], padding: int, width: int, height: int) -> List[tuple]:
+        """Merge overlapping/nearby bounding boxes into larger regions."""
+        if not boxes:
+            return []
+
+        # Convert to pixel rects with padding
+        rects = []
+        for box in boxes:
+            coords = box["box_2d"]
+            y1 = max(0, int(coords[0] / 1000 * height) - padding)
+            x1 = max(0, int(coords[1] / 1000 * width) - padding)
+            y2 = min(height, int(coords[2] / 1000 * height) + padding)
+            x2 = min(width, int(coords[3] / 1000 * width) + padding)
+            rects.append((x1, y1, x2, y2))
+
+        # Iteratively merge overlapping rectangles
+        merged = True
+        while merged:
+            merged = False
+            new_rects = []
+            used = set()
+            for i in range(len(rects)):
+                if i in used:
+                    continue
+                r1 = rects[i]
+                for j in range(i + 1, len(rects)):
+                    if j in used:
+                        continue
+                    r2 = rects[j]
+                    # Check overlap (with gap tolerance)
+                    gap = padding
+                    if (r1[0] - gap <= r2[2] and r2[0] - gap <= r1[2] and
+                            r1[1] - gap <= r2[3] and r2[1] - gap <= r1[3]):
+                        r1 = (min(r1[0], r2[0]), min(r1[1], r2[1]),
+                               max(r1[2], r2[2]), max(r1[3], r2[3]))
+                        used.add(j)
+                        merged = True
+                new_rects.append(r1)
+                used.add(i)
+            rects = new_rects
+
+        return rects
+
     def _create_mask(self, boxes: List[Dict], width: int, height: int) -> bytes:
         """Create RGBA mask from bounding boxes. Transparent = areas to edit."""
         # OpenAI convention: opaque = keep, transparent (alpha=0) = edit
         mask = Image.new("RGBA", (width, height), (255, 255, 255, 255))
         draw = ImageDraw.Draw(mask)
 
-        padding = max(10, int(min(width, height) * 0.015))  # ~1.5% padding
+        # 5% padding — generous to catch text shadows and outlines
+        padding = max(15, int(min(width, height) * 0.05))
 
-        for box in boxes:
-            coords = box["box_2d"]  # [ymin, xmin, ymax, xmax] normalized 0-1000
-            y1 = int(coords[0] / 1000 * height)
-            x1 = int(coords[1] / 1000 * width)
-            y2 = int(coords[2] / 1000 * height)
-            x2 = int(coords[3] / 1000 * width)
+        # Merge overlapping boxes into larger regions
+        merged_rects = self._merge_overlapping_boxes(boxes, padding, width, height)
+        logger.info(f"[IMAGE-EDIT] {len(boxes)} boxes merged into {len(merged_rects)} regions")
 
-            # Add padding
-            y1 = max(0, y1 - padding)
-            x1 = max(0, x1 - padding)
-            y2 = min(height, y2 + padding)
-            x2 = min(width, x2 + padding)
+        for (x1, y1, x2, y2) in merged_rects:
 
             # Transparent rectangle = area to edit
             draw.rectangle([x1, y1, x2, y2], fill=(0, 0, 0, 0))
