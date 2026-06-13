@@ -31,13 +31,13 @@ router = APIRouter(prefix="/api/ai", tags=["AI"])
 
 FALLBACK_CHAINS = {
     "claude-sonnet": ["claude-haiku", "gemini-pro", "chatgpt"],
-    "claude-haiku": ["gemini-flash", "claude-sonnet", "chatgpt"],
-    "chatgpt": ["claude-sonnet", "gemini-pro"],
-    "openai": ["claude-sonnet", "gemini-pro"],  # legacy alias
-    "gemini-pro": ["gemini-flash", "claude-sonnet", "chatgpt"],
+    "claude-haiku": ["claude-sonnet", "gemini-flash", "chatgpt"],
+    "chatgpt": ["claude-haiku", "claude-sonnet", "gemini-pro"],
+    "openai": ["claude-haiku", "claude-sonnet", "gemini-pro"],  # legacy alias
+    "gemini-pro": ["claude-haiku", "gemini-flash", "claude-sonnet", "chatgpt"],
     "gemini-flash": ["claude-haiku", "gemini-pro", "chatgpt"],
-    "moonshot": ["claude-sonnet", "chatgpt"],
-    "perplexity": ["chatgpt", "claude-sonnet"],
+    "moonshot": ["claude-haiku", "claude-sonnet", "chatgpt"],
+    "perplexity": ["claude-haiku", "claude-sonnet", "chatgpt"],
 }
 
 # Time budgets — keep total below typical 30s client timeout so we can return
