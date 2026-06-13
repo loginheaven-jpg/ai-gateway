@@ -23,7 +23,8 @@ class WhisperService(STTService):
             client = OpenAI(
                 api_key=self.api_key,
                 base_url=self.base_url,
-                timeout=httpx.Timeout(120.0, connect=30.0)
+                timeout=httpx.Timeout(120.0, connect=30.0),
+                max_retries=0,
             )
 
             # Create file-like object from bytes

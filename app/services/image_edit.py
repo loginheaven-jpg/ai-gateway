@@ -281,6 +281,7 @@ class ImageEditService:
             client = OpenAI(
                 api_key=self.openai_api_key,
                 timeout=httpx.Timeout(120.0, connect=30.0),
+                max_retries=0,
             )
 
             image_bytes = self._resize_to_square(original, 1024)
@@ -298,10 +299,19 @@ class ImageEditService:
                 prompt=DALLE_INPAINT_PROMPT,
                 size="1024x1024",
                 n=1,
-                response_format="b64_json",
             )
 
-            result_b64 = response.data[0].b64_json
+            data0 = response.data[0]
+            result_b64 = getattr(data0, "b64_json", None)
+            if not result_b64:
+                url = getattr(data0, "url", None)
+                if not url:
+                    raise Exception("DALL-E response missing both b64_json and url")
+                async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=15.0)) as http:
+                    r = await http.get(url)
+                    r.raise_for_status()
+                    result_b64 = base64.b64encode(r.content).decode("ascii")
+
             logger.info(f"[IMAGE-EDIT/DALL-E] Inpainting complete, b64 length: {len(result_b64)}")
             return result_b64
 

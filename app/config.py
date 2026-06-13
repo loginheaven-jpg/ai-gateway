@@ -141,14 +141,14 @@ def _get_default_providers():
         "gemini-pro": ProviderConfig(
             name="Gemini (Pro)",
             api_key=os.getenv("GOOGLE_API_KEY", ""),
-            model=os.getenv("GEMINI_PRO_MODEL", "gemini-3-pro-preview"),
+            model=os.getenv("GEMINI_PRO_MODEL", "gemini-pro-latest"),
             base_url="https://generativelanguage.googleapis.com/v1beta",
             enabled=True
         ),
         "gemini-flash": ProviderConfig(
             name="Gemini (Flash)",
             api_key=os.getenv("GOOGLE_API_KEY", ""),
-            model=os.getenv("GEMINI_FLASH_MODEL", "gemini-2.5-flash"),
+            model=os.getenv("GEMINI_FLASH_MODEL", "gemini-flash-latest"),
             base_url="https://generativelanguage.googleapis.com/v1beta",
             enabled=True
         ),
@@ -342,6 +342,23 @@ def load_config() -> AIConfig:
         if "openai" in config.providers and "chatgpt" not in config.providers:
             config.providers["chatgpt"] = config.providers["openai"]
             config.providers["chatgpt"].name = "ChatGPT (OpenAI)"
+
+        # Auto-heal known-retired model IDs that caused the 2026-06-13 outage.
+        # Only rewrites exact matches; custom user-set models are untouched.
+        RETIRED_MODELS = {
+            "gemini-pro":   ("gemini-3-pro-preview", "gemini-pro-latest"),
+            "gemini-flash": ("gemini-2.5-flash",     "gemini-flash-latest"),
+            "claude-haiku": ("claude-haiku-4-6",     "claude-haiku-4-5-20251001"),
+        }
+        healed = []
+        for pid, (bad, good) in RETIRED_MODELS.items():
+            p = config.providers.get(pid)
+            if p and p.model == bad:
+                p.model = good
+                healed.append(f"{pid}:{bad}→{good}")
+        if healed:
+            _save_to_db(config)
+            print(f"[CONFIG] Auto-healed retired models: {healed}")
 
         return config
 

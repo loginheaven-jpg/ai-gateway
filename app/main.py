@@ -10,6 +10,27 @@ from .config import init_db, load_config
 from .usage import init_usage_table
 
 
+_RISKY_MODEL_PATTERNS = ("-preview", "-exp", "-experimental")
+
+
+def _audit_provider_models(config) -> None:
+    """Flag model IDs that historically caused outages: preview/experimental
+    aliases retire without notice, and empty API keys."""
+    for pid, p in config.providers.items():
+        if not p.enabled:
+            continue
+        if not p.api_key:
+            print(f"[STARTUP WARN] {pid}: missing API key (enabled but won't work)")
+            continue
+        if any(tag in (p.model or "") for tag in _RISKY_MODEL_PATTERNS):
+            print(
+                f"[STARTUP WARN] {pid}: using risky model '{p.model}' "
+                f"(preview/experimental aliases retire without notice — prefer '-latest')"
+            )
+        else:
+            print(f"[STARTUP OK]   {pid}: {p.model}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize database on startup"""
@@ -19,6 +40,7 @@ async def lifespan(app: FastAPI):
         init_usage_table()
         config = load_config()
         print(f"[STARTUP] Loaded {len(config.providers)} providers")
+        _audit_provider_models(config)
     except Exception as e:
         print(f"[STARTUP ERROR] Database initialization failed: {e}")
         print("[STARTUP] Continuing without database - will use environment defaults")

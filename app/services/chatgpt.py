@@ -48,7 +48,8 @@ class ChatGPTService(AIService):
             client = OpenAI(
                 api_key=self.api_key,
                 base_url=self.base_url,
-                timeout=httpx.Timeout(300.0, connect=60.0)  # 5 min timeout
+                timeout=httpx.Timeout(300.0, connect=60.0),  # 5 min timeout
+                max_retries=0,  # gateway handles fallback; SDK retries on permanent errors waste time
             )
 
             # Transform image blocks to OpenAI format
@@ -98,7 +99,8 @@ class ChatGPTService(AIService):
         client = OpenAI(
             api_key=self.api_key,
             base_url=self.base_url,
-            timeout=httpx.Timeout(300.0, connect=60.0)
+            timeout=httpx.Timeout(300.0, connect=60.0),
+            max_retries=0,
         )
 
         messages = self._transform_messages_for_openai(messages)

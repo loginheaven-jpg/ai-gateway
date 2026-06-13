@@ -35,7 +35,8 @@ class DallEService(ImageService):
         try:
             client = OpenAI(
                 api_key=self.api_key,
-                timeout=httpx.Timeout(120.0, connect=30.0)
+                timeout=httpx.Timeout(120.0, connect=30.0),
+                max_retries=0,
             )
 
             response = client.images.generate(
