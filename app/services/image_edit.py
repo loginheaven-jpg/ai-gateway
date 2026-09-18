@@ -38,6 +38,10 @@ TEXT_DETECTION_PROMPT = (
     "If no text is found, return an empty array []."
 )
 
+# OpenAI inpainting model (DALL-E 2 was retired; gpt-image-1 retires 2026-10-23).
+# gpt-image-2 keeps pixels outside the mask; the faster 2.5-flare repaints them.
+OPENAI_EDIT_MODEL = os.getenv("IMAGE_EDIT_OPENAI_MODEL", "gpt-image-2")
+
 # Inpainting prompts
 DALLE_INPAINT_PROMPT = (
     "Completely remove all text, letters, characters, watermarks, and any writing. "
@@ -113,7 +117,7 @@ class ImageEditService:
         # Step 3: Inpaint with selected provider
         if provider == "dall-e":
             result_b64 = await self._inpaint_dalle(original, mask_bytes, orig_width, orig_height)
-            model_name = "dall-e-2"
+            model_name = OPENAI_EDIT_MODEL
         else:
             result_b64 = await self._inpaint_imagen(image_bytes, mask_bytes, media_type)
             model_name = "imagen-3.0-capability-001"
@@ -291,13 +295,15 @@ class ImageEditService:
             mask_file = io.BytesIO(openai_mask)
             mask_file.name = "mask.png"
 
+            extra = {"quality": "medium"} if OPENAI_EDIT_MODEL.startswith("gpt-image") else {}
             response = await client.images.edit(
-                model="dall-e-2",
+                model=OPENAI_EDIT_MODEL,
                 image=image_file,
                 mask=mask_file,
                 prompt=DALLE_INPAINT_PROMPT,
                 size="1024x1024",
                 n=1,
+                **extra,
             )
 
             data0 = response.data[0]

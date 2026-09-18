@@ -292,7 +292,7 @@ async def list_image_edit_providers():
     return {
         "providers": [
             {"id": "imagen", "name": "Imagen 3 (Vertex AI)", "description": "High quality, original size preserved"},
-            {"id": "dall-e", "name": "DALL-E 2 (OpenAI)", "description": "1024x1024 square output"},
+            {"id": "dall-e", "name": "GPT Image (OpenAI)", "description": "1024x1024 square output"},
         ],
         "default": default_edit
     }

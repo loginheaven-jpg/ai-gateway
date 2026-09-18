@@ -221,17 +221,17 @@ def _get_default_providers():
         ),
         # Image Generation Providers
         "dall-e": ProviderConfig(
-            name="DALL-E 3 (OpenAI)",
+            name="GPT Image (OpenAI)",
             api_key=os.getenv("OPENAI_API_KEY", ""),
-            model="dall-e-3",
+            model="gpt-image-2.5-flare",
             base_url="https://api.openai.com/v1",
             enabled=True,
             service_type="image"
         ),
         "imagen": ProviderConfig(
-            name="Imagen 3 (Google)",
+            name="Gemini Image (Google)",
             api_key=os.getenv("GOOGLE_API_KEY", ""),
-            model="imagen-3.0-generate-002",
+            model="gemini-3.1-flash-image",
             base_url="https://generativelanguage.googleapis.com/v1beta",
             enabled=True,
             service_type="image"
@@ -383,13 +383,25 @@ def _migrate(config: AIConfig) -> bool:
         "gemini-pro":   ({"gemini-3-pro-preview", "gemini-3.1-pro"}, "gemini-pro-latest"),
         "gemini-flash": ({"gemini-2.5-flash"},                       "gemini-flash-latest"),
         "claude-haiku": ({"claude-haiku-4-6"},                       "claude-haiku-4-5-20251001"),
+        # Retired image models (OpenAI DALL-E 2/3; Imagen 3 removed from the Gemini API)
+        "dall-e":       ({"dall-e-3", "dall-e-2", "gpt-image-1"},    "gpt-image-2.5-flare"),
+        "imagen":       ({"imagen-3.0-generate-002", "imagen-3.0-generate-001"}, "gemini-3.1-flash-image"),
+    }
+    # Display names that described the retired model; replaced only if unchanged
+    RENAMED = {
+        "dall-e": ("DALL-E 3 (OpenAI)", "GPT Image (OpenAI)"),
+        "imagen": ("Imagen 3 (Google)", "Gemini Image (Google)"),
     }
     healed = []
     for pid, (bad_ids, good) in RETIRED_MODELS.items():
         p = config.providers.get(pid)
         if p and p.model in bad_ids:
             healed.append(f"{pid}:{p.model}->{good}")
-            config.providers[pid] = p.model_copy(update={"model": good})
+            update = {"model": good}
+            old_name, new_name = RENAMED.get(pid, (None, None))
+            if p.name == old_name:
+                update["name"] = new_name
+            config.providers[pid] = p.model_copy(update=update)
     if healed:
         changed = True
         print(f"[CONFIG] Auto-healed retired models: {healed}")
