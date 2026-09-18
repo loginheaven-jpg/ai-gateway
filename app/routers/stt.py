@@ -7,7 +7,7 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from ..config import load_config, get_provider
+from ..config import load_config, get_provider, get_setting
 from ..usage import log_usage
 from ..services import WhisperService, ClovaSttService, ClovaCsrService
 
@@ -28,20 +28,8 @@ _DEFAULT_STT_ENV = os.getenv("DEFAULT_STT_PROVIDER", "whisper")
 
 
 def _get_default_stt_provider() -> str:
-    """Get default STT provider from DB settings, fallback to env var."""
-    from ..config import USE_POSTGRES, _get_pg_connection, _get_sqlite_connection
-    try:
-        if USE_POSTGRES:
-            conn = _get_pg_connection()
-        else:
-            conn = _get_sqlite_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT value FROM settings WHERE key = 'default_stt_provider'")
-        result = cursor.fetchone()
-        conn.close()
-        return result[0] if result else _DEFAULT_STT_ENV
-    except Exception:
-        return _DEFAULT_STT_ENV
+    """Get default STT provider from settings (in memory), fallback to env var."""
+    return get_setting("default_stt_provider") or _DEFAULT_STT_ENV
 
 # Fallback chains
 STT_FALLBACK = {

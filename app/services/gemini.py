@@ -2,10 +2,17 @@ from google import genai
 from google.genai import types
 import base64
 import logging
+import os
 from typing import List, Dict, Any, Optional
 from .base import AIService
 
 logger = logging.getLogger(__name__)
+
+# SDK-level timeout. google-genai 1.2.0 runs each call as a blocking requests
+# call in a worker thread with no timeout; asyncio.wait_for only abandons the
+# await, the thread keeps running. Set just above the gateway's per-provider
+# deadline so the gateway's own timeout (504 / fallback) fires first.
+_SDK_TIMEOUT_MS = int((float(os.getenv("AI_PROVIDER_DEADLINE_S", "15")) + 5) * 1000)
 
 
 class GeminiService(AIService):
@@ -13,7 +20,7 @@ class GeminiService(AIService):
 
     def __init__(self, api_key: str, model: str, base_url: str = None):
         super().__init__(api_key, model, base_url)
-        self.client = genai.Client(api_key=self.api_key)
+        self.client = genai.Client(api_key=self.api_key, http_options={"timeout": _SDK_TIMEOUT_MS})
         logger.info(f"[GEMINI] Initialized with model: {model}")
 
     async def chat(

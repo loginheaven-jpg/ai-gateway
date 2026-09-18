@@ -1,4 +1,12 @@
-"""Usage logging module - tracks all AI API requests for analytics."""
+"""Usage logging module - tracks all AI API requests for analytics.
+
+Rows are written by a dedicated background thread over one persistent DB
+connection, so logging never delays a response or blocks the event loop.
+Rules are unchanged: one row per provider attempt, timestamp taken when the
+attempt ends, write failures are swallowed (counted, not raised).
+"""
+import queue
+import threading
 import time
 import logging
 from datetime import datetime, timezone
@@ -8,9 +16,11 @@ from .config import USE_POSTGRES, _get_pg_connection, _get_sqlite_connection
 
 logger = logging.getLogger(__name__)
 
+_QUEUE_MAX = 10000
+_BATCH_MAX = 200
 
-def init_usage_table():
-    """Create usage_logs table if not exists."""
+
+def _usage_table_sql() -> str:
     sql = '''
         CREATE TABLE IF NOT EXISTS usage_logs (
             id INTEGER PRIMARY KEY {autoincrement},
@@ -25,19 +35,151 @@ def init_usage_table():
             caller TEXT
         )
     '''
-
     if USE_POSTGRES:
         # PostgreSQL uses SERIAL for auto-increment
-        sql = sql.replace("INTEGER PRIMARY KEY {autoincrement}", "SERIAL PRIMARY KEY")
-        conn = _get_pg_connection()
-    else:
-        sql = sql.replace("{autoincrement}", "AUTOINCREMENT")
-        conn = _get_sqlite_connection()
+        return sql.replace("INTEGER PRIMARY KEY {autoincrement}", "SERIAL PRIMARY KEY")
+    return sql.replace("{autoincrement}", "AUTOINCREMENT")
 
-    cursor = conn.cursor()
-    cursor.execute(sql)
-    conn.commit()
-    conn.close()
+
+def init_usage_table():
+    """Create usage_logs table if not exists."""
+    conn = _get_pg_connection() if USE_POSTGRES else _get_sqlite_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(_usage_table_sql())
+        conn.commit()
+    finally:
+        conn.close()
+
+
+_INSERT_SQL = '''
+    INSERT INTO usage_logs (timestamp, provider, model, input_tokens, output_tokens, elapsed_ms, success, error_message, caller)
+    VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
+'''.format(p="%s" if USE_POSTGRES else "?")
+
+_STOP = object()
+
+
+class _UsageWriter:
+    """Single writer thread + bounded queue + persistent connection (its own,
+    separate from config connections). Not the default executor: google-genai
+    runs its blocking HTTP calls there."""
+
+    def __init__(self):
+        self._q: "queue.Queue" = queue.Queue(maxsize=_QUEUE_MAX)
+        self._thread: Optional[threading.Thread] = None
+        self._lock = threading.Lock()
+        self.dropped = 0   # queue full
+        self.failed = 0    # DB write failed after reconnect
+        self.written = 0
+
+    def start(self):
+        with self._lock:
+            if self._thread is None or not self._thread.is_alive():
+                self._thread = threading.Thread(target=self._run, name="usage-writer", daemon=True)
+                self._thread.start()
+
+    def submit(self, row: tuple):
+        self.start()
+        try:
+            self._q.put_nowait(row)
+        except queue.Full:
+            self.dropped += 1
+            if self.dropped % 100 == 1:
+                logger.warning(f"[USAGE LOG] queue full, dropped={self.dropped}")
+
+    def stop(self, timeout: float = 5.0):
+        """Flush what is queued (bounded by timeout) and stop the thread."""
+        if self._thread is None or not self._thread.is_alive():
+            return
+        try:
+            self._q.put(_STOP, timeout=timeout)
+        except queue.Full:
+            return
+        self._thread.join(timeout)
+
+    def stats(self) -> dict:
+        return {"queued": self._q.qsize(), "written": self.written,
+                "dropped": self.dropped, "failed": self.failed}
+
+    def _run(self):
+        conn = None
+        stop = False
+        while not stop:
+            item = self._q.get()
+            if item is _STOP:
+                break
+            batch = [item]
+            while len(batch) < _BATCH_MAX:
+                try:
+                    nxt = self._q.get_nowait()
+                except queue.Empty:
+                    break
+                if nxt is _STOP:
+                    stop = True
+                    break
+                batch.append(nxt)
+            conn = self._write(conn, batch)
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    def _connect(self):
+        conn = _get_pg_connection() if USE_POSTGRES else _get_sqlite_connection()
+        cur = conn.cursor()
+        cur.execute(_usage_table_sql())
+        conn.commit()
+        return conn
+
+    @staticmethod
+    def _close(conn):
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return None
+
+    def _write(self, conn, batch):
+        # Whole batch in one transaction.
+        try:
+            if conn is None:
+                conn = self._connect()
+            conn.cursor().executemany(_INSERT_SQL, batch)
+            conn.commit()
+            self.written += len(batch)
+            return conn
+        except Exception as e:
+            logger.error(f"[USAGE LOG ERROR] batch of {len(batch)}: {type(e).__name__}: {e}")
+            conn = self._close(conn)
+
+        # Retry row by row on a fresh connection, so a bad row loses only itself.
+        # (If the batch commit failed after the server had committed, rows can
+        # be written twice; that needs a connection drop at commit time.)
+        for i, row in enumerate(batch):
+            if conn is None:
+                try:
+                    conn = self._connect()
+                except Exception as e:
+                    logger.error(f"[USAGE LOG ERROR] reconnect failed: {type(e).__name__}: {e}")
+                    self.failed += len(batch) - i
+                    return None
+            try:
+                conn.cursor().execute(_INSERT_SQL, row)
+                conn.commit()
+                self.written += 1
+            except Exception as e:
+                logger.error(f"[USAGE LOG ERROR] row dropped: {type(e).__name__}: {e}")
+                self.failed += 1
+                try:
+                    conn.rollback()
+                except Exception:
+                    conn = self._close(conn)
+        return conn
+
+
+usage_writer = _UsageWriter()
 
 
 def log_usage(
@@ -50,29 +192,13 @@ def log_usage(
     error_message: Optional[str] = None,
     caller: Optional[str] = None
 ):
-    """Log a single API usage record."""
+    """Queue a single API usage record (non-blocking)."""
     try:
         now = datetime.now(timezone.utc).isoformat()
-
-        if USE_POSTGRES:
-            conn = _get_pg_connection()
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO usage_logs (timestamp, provider, model, input_tokens, output_tokens, elapsed_ms, success, error_message, caller)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ''', (now, provider, model, input_tokens, output_tokens, elapsed_ms,
-                  1 if success else 0, error_message, caller))
-        else:
-            conn = _get_sqlite_connection()
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO usage_logs (timestamp, provider, model, input_tokens, output_tokens, elapsed_ms, success, error_message, caller)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (now, provider, model, input_tokens, output_tokens, elapsed_ms,
-                  1 if success else 0, error_message, caller))
-
-        conn.commit()
-        conn.close()
+        # PostgreSQL rejects NUL bytes in text; provider error bodies can contain them
+        clean = lambda v: v.replace("\x00", "") if isinstance(v, str) else v
+        usage_writer.submit((now, clean(provider), clean(model), input_tokens, output_tokens, elapsed_ms,
+                             1 if success else 0, clean(error_message), clean(caller)))
     except Exception as e:
         logger.error(f"[USAGE LOG ERROR] {e}")
 

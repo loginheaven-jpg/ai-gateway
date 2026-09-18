@@ -2,7 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional
 
-from ..config import load_config, save_config, update_provider, reset_providers, ProviderConfig, AIConfig
+import os
+
+from ..config import (
+    load_config, save_config, update_provider, reset_providers, set_default_provider as set_default_provider_config,
+    get_setting, set_setting, ProviderConfig, AIConfig, ConfigUnavailable,
+)
 from ..usage import get_usage_stats, get_recent_logs
 from ..cache import response_cache
 from ..auth import require_admin
@@ -98,6 +103,8 @@ async def update_provider_config(provider_id: str, request: ProviderUpdateReques
 
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except (HTTPException, ConfigUnavailable):
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -105,13 +112,10 @@ async def update_provider_config(provider_id: str, request: ProviderUpdateReques
 @router.put("/default-provider")
 async def set_default_provider(request: DefaultProviderRequest):
     """Set the default AI provider"""
-    config = load_config()
-
-    if request.provider not in config.providers:
+    try:
+        set_default_provider_config(request.provider)
+    except ValueError:
         raise HTTPException(status_code=404, detail=f"Provider not found: {request.provider}")
-
-    config.default_provider = request.provider
-    save_config(config)
 
     return {"success": True, "default_provider": request.provider}
 
@@ -127,23 +131,7 @@ async def set_default_stt_provider(request: DefaultProviderRequest):
     if config.providers[request.provider].service_type != "stt":
         raise HTTPException(status_code=400, detail=f"Not an STT provider: {request.provider}")
 
-    # Save to settings table
-    from ..config import USE_POSTGRES, _get_pg_connection, _get_sqlite_connection
-    if USE_POSTGRES:
-        conn = _get_pg_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO settings (key, value) VALUES ('default_stt_provider', %s)
-            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-        ''', (request.provider,))
-    else:
-        conn = _get_sqlite_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT OR REPLACE INTO settings (key, value) VALUES ('default_stt_provider', ?)
-        ''', (request.provider,))
-    conn.commit()
-    conn.close()
+    set_setting("default_stt_provider", request.provider)
 
     return {"success": True, "default_stt_provider": request.provider}
 
@@ -151,20 +139,7 @@ async def set_default_stt_provider(request: DefaultProviderRequest):
 @router.get("/default-stt-provider")
 async def get_default_stt_provider():
     """Get the default STT provider"""
-    import os
-    from ..config import USE_POSTGRES, _get_pg_connection, _get_sqlite_connection
-    try:
-        if USE_POSTGRES:
-            conn = _get_pg_connection()
-        else:
-            conn = _get_sqlite_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT value FROM settings WHERE key = 'default_stt_provider'")
-        result = cursor.fetchone()
-        conn.close()
-        default = result[0] if result else os.getenv("DEFAULT_STT_PROVIDER", "whisper")
-    except Exception:
-        default = os.getenv("DEFAULT_STT_PROVIDER", "whisper")
+    default = get_setting("default_stt_provider") or os.getenv("DEFAULT_STT_PROVIDER", "whisper")
     return {"default_stt_provider": default}
 
 
@@ -179,22 +154,7 @@ async def set_default_image_provider(request: DefaultProviderRequest):
     if config.providers[request.provider].service_type != "image":
         raise HTTPException(status_code=400, detail=f"Not an Image provider: {request.provider}")
 
-    from ..config import USE_POSTGRES, _get_pg_connection, _get_sqlite_connection
-    if USE_POSTGRES:
-        conn = _get_pg_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO settings (key, value) VALUES ('default_image_provider', %s)
-            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-        ''', (request.provider,))
-    else:
-        conn = _get_sqlite_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT OR REPLACE INTO settings (key, value) VALUES ('default_image_provider', ?)
-        ''', (request.provider,))
-    conn.commit()
-    conn.close()
+    set_setting("default_image_provider", request.provider)
 
     return {"success": True, "default_image_provider": request.provider}
 
@@ -202,20 +162,7 @@ async def set_default_image_provider(request: DefaultProviderRequest):
 @router.get("/default-image-provider")
 async def get_default_image_provider():
     """Get the default Image generation provider"""
-    import os
-    from ..config import USE_POSTGRES, _get_pg_connection, _get_sqlite_connection
-    try:
-        if USE_POSTGRES:
-            conn = _get_pg_connection()
-        else:
-            conn = _get_sqlite_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT value FROM settings WHERE key = 'default_image_provider'")
-        result = cursor.fetchone()
-        conn.close()
-        default = result[0] if result else os.getenv("DEFAULT_IMAGE_PROVIDER", "dall-e")
-    except Exception:
-        default = os.getenv("DEFAULT_IMAGE_PROVIDER", "dall-e")
+    default = get_setting("default_image_provider") or os.getenv("DEFAULT_IMAGE_PROVIDER", "dall-e")
     return {"default_image_provider": default}
 
 
@@ -225,22 +172,7 @@ async def set_default_image_edit_provider(request: DefaultProviderRequest):
     if request.provider not in ("imagen", "dall-e"):
         raise HTTPException(status_code=400, detail=f"Invalid image edit provider: {request.provider}. Use 'imagen' or 'dall-e'.")
 
-    from ..config import USE_POSTGRES, _get_pg_connection, _get_sqlite_connection
-    if USE_POSTGRES:
-        conn = _get_pg_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO settings (key, value) VALUES ('default_image_edit_provider', %s)
-            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-        ''', (request.provider,))
-    else:
-        conn = _get_sqlite_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT OR REPLACE INTO settings (key, value) VALUES ('default_image_edit_provider', ?)
-        ''', (request.provider,))
-    conn.commit()
-    conn.close()
+    set_setting("default_image_edit_provider", request.provider)
 
     return {"success": True, "default_image_edit_provider": request.provider}
 
@@ -294,6 +226,8 @@ async def import_config(data: dict):
             "message": "Configuration imported successfully",
             "providers": list(config.providers.keys())
         }
+    except ConfigUnavailable:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid configuration: {str(e)}")
 

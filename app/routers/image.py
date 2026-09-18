@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from ..config import load_config, get_provider
+from ..config import load_config, get_provider, get_setting
 from ..usage import log_usage
 from ..services import DallEService, ImagenService
 
@@ -20,20 +20,8 @@ _DEFAULT_IMAGE_ENV = os.getenv("DEFAULT_IMAGE_PROVIDER", "dall-e")
 
 
 def _get_default_image_provider() -> str:
-    """Get default image provider from DB settings, fallback to env var."""
-    from ..config import USE_POSTGRES, _get_pg_connection, _get_sqlite_connection
-    try:
-        if USE_POSTGRES:
-            conn = _get_pg_connection()
-        else:
-            conn = _get_sqlite_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT value FROM settings WHERE key = 'default_image_provider'")
-        result = cursor.fetchone()
-        conn.close()
-        return result[0] if result else _DEFAULT_IMAGE_ENV
-    except Exception:
-        return _DEFAULT_IMAGE_ENV
+    """Get default image provider from settings (in memory), fallback to env var."""
+    return get_setting("default_image_provider") or _DEFAULT_IMAGE_ENV
 
 # Fallback chains
 IMAGE_FALLBACK = {
@@ -194,20 +182,8 @@ _DEFAULT_IMAGE_EDIT_ENV = os.getenv("DEFAULT_IMAGE_EDIT_PROVIDER", "imagen")
 
 
 def _get_default_image_edit_provider() -> str:
-    """Get default image edit provider from DB settings."""
-    from ..config import USE_POSTGRES, _get_pg_connection, _get_sqlite_connection
-    try:
-        if USE_POSTGRES:
-            conn = _get_pg_connection()
-        else:
-            conn = _get_sqlite_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT value FROM settings WHERE key = 'default_image_edit_provider'")
-        result = cursor.fetchone()
-        conn.close()
-        return result[0] if result else _DEFAULT_IMAGE_EDIT_ENV
-    except Exception:
-        return _DEFAULT_IMAGE_EDIT_ENV
+    """Get default image edit provider from settings (in memory)."""
+    return get_setting("default_image_edit_provider") or _DEFAULT_IMAGE_EDIT_ENV
 
 
 @router.post("/image/edit")

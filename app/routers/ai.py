@@ -199,8 +199,8 @@ async def chat(request: ChatRequest):
     Send a chat request to an AI provider.
     Supports caching, fallback chain, and usage logging.
     """
-    config = load_config()
-    provider_id = request.provider or config.default_provider
+    # Config is in memory; an explicit provider skips even that lookup.
+    provider_id = request.provider or load_config().default_provider
 
     logger.info(f"[CHAT] Provider: {provider_id}, Messages: {len(request.messages)}")
 
@@ -319,8 +319,7 @@ async def chat_stream(request: ChatRequest):
     Each chunk is sent as: data: {"text": "..."}\n\n
     Final event: data: {"done": true}\n\n
     """
-    config = load_config()
-    provider_id = request.provider or config.default_provider
+    provider_id = request.provider or load_config().default_provider
 
     try:
         service = get_ai_service(provider_id)
