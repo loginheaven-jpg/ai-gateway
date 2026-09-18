@@ -50,7 +50,8 @@ TOTAL_BUDGET_S      = float(os.getenv("AI_TOTAL_BUDGET_S", "28"))
 # this provider again, immediately fall over to the next one.
 _PERMANENT_PATTERNS = re.compile(
     r"insufficient_quota|invalid_api_key|authentication|not_found_error|"
-    r"model_not_found|permission_denied|billing|account_deactivated",
+    r"model_not_found|permission_denied|billing|account_deactivated|"
+    r"NOT_FOUND|is not found",
     re.IGNORECASE,
 )
 _PERMANENT_STATUSES = {400, 401, 403, 404}

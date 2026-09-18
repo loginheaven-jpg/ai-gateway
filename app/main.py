@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from .routers import ai_router, settings_router, stt_router, image_router
 from .config import bootstrap_config, config_source, log_db_timing, ConfigUnavailable
 from .usage import init_usage_table, usage_writer
+from .services.clients import close_clients
 
 
 _RISKY_MODEL_PATTERNS = ("-preview", "-exp", "-experimental")
@@ -50,6 +51,7 @@ async def lifespan(app: FastAPI):
     yield
     print("[SHUTDOWN] AI Gateway shutting down")
     usage_writer.stop(timeout=5.0)
+    await close_clients()
 
 
 app = FastAPI(

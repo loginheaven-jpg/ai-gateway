@@ -1,9 +1,9 @@
 import io
 import logging
 from typing import Dict, Any, Optional
-from openai import OpenAI
 import httpx
 from .stt_base import STTService
+from .clients import get_async_openai
 
 logger = logging.getLogger(__name__)
 
@@ -20,19 +20,14 @@ class WhisperService(STTService):
         logger.info(f"[WHISPER] Language: {language}, File: {filename}, Size: {len(audio_data)} bytes")
 
         try:
-            client = OpenAI(
-                api_key=self.api_key,
-                base_url=self.base_url,
-                timeout=httpx.Timeout(120.0, connect=30.0),
-                max_retries=0,
-            )
+            client = get_async_openai(self.api_key, self.base_url, httpx.Timeout(120.0, connect=30.0))
 
             # Create file-like object from bytes
             audio_file = io.BytesIO(audio_data)
             audio_file.name = filename
 
             # Use verbose_json to get duration info
-            response = client.audio.transcriptions.create(
+            response = await client.audio.transcriptions.create(
                 model=self.model,
                 file=audio_file,
                 language=language,

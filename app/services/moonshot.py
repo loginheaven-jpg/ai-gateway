@@ -1,6 +1,7 @@
 import httpx
 from typing import List, Dict, Any, Optional
 from .base import AIService
+from .clients import get_http_client
 
 
 class MoonshotService(AIService):
@@ -36,14 +37,14 @@ class MoonshotService(AIService):
             "messages": all_messages
         }
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                f"{self.base_url}/chat/completions",
-                headers=headers,
-                json=payload
-            )
-            response.raise_for_status()
-            data = response.json()
+        response = await get_http_client().post(
+            f"{self.base_url}/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=120.0,
+        )
+        response.raise_for_status()
+        data = response.json()
 
         return {
             "content": data["choices"][0]["message"]["content"],

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional
 
+import asyncio
 import os
 
 from ..config import (
@@ -238,7 +239,7 @@ async def import_config(data: dict):
 async def usage_stats(days: int = 7, provider: Optional[str] = None):
     """Get usage statistics for the given period."""
     try:
-        return get_usage_stats(days=days, provider=provider)
+        return await asyncio.to_thread(get_usage_stats, days=days, provider=provider)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -247,7 +248,7 @@ async def usage_stats(days: int = 7, provider: Optional[str] = None):
 async def usage_logs(limit: int = Query(50, ge=1, le=500)):
     """Get recent usage log entries."""
     try:
-        return {"logs": get_recent_logs(limit=limit)}
+        return {"logs": await asyncio.to_thread(get_recent_logs, limit=limit)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

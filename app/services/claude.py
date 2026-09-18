@@ -3,6 +3,7 @@ import json
 import logging
 from typing import List, Dict, Any, Optional, AsyncGenerator
 from .base import AIService
+from .clients import get_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -37,20 +38,20 @@ class ClaudeService(AIService):
         logger.info(f"[CLAUDE] Messages: {len(messages)}, System prompt: {len(system_prompt) if system_prompt else 0} chars")
 
         try:
-            # Increased timeout to 300s (5 min) for long analysis requests
-            async with httpx.AsyncClient(timeout=300.0) as client:
-                response = await client.post(
-                    f"{self.base_url}/messages",
-                    headers=headers,
-                    json=payload
-                )
+            # 300s (5 min) timeout for long analysis requests
+            response = await get_http_client().post(
+                f"{self.base_url}/messages",
+                headers=headers,
+                json=payload,
+                timeout=300.0,
+            )
 
-                if response.status_code != 200:
-                    error_text = response.text
-                    logger.error(f"[CLAUDE ERROR] Status {response.status_code}: {error_text}")
-                    raise Exception(f"Claude API error {response.status_code}: {error_text[:500]}")
+            if response.status_code != 200:
+                error_text = response.text
+                logger.error(f"[CLAUDE ERROR] Status {response.status_code}: {error_text}")
+                raise Exception(f"Claude API error {response.status_code}: {error_text[:500]}")
 
-                data = response.json()
+            data = response.json()
 
             logger.info(f"[CLAUDE] Response received, content length: {len(data.get('content', [{}])[0].get('text', ''))}")
 
@@ -98,26 +99,26 @@ class ClaudeService(AIService):
         if system_prompt:
             payload["system"] = system_prompt
 
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            async with client.stream(
-                "POST",
-                f"{self.base_url}/messages",
-                headers=headers,
-                json=payload
-            ) as response:
-                if response.status_code != 200:
-                    error_text = await response.aread()
-                    raise Exception(f"Claude API error {response.status_code}: {error_text.decode()[:500]}")
+        async with get_http_client().stream(
+            "POST",
+            f"{self.base_url}/messages",
+            headers=headers,
+            json=payload,
+            timeout=300.0,
+        ) as response:
+            if response.status_code != 200:
+                error_text = await response.aread()
+                raise Exception(f"Claude API error {response.status_code}: {error_text.decode()[:500]}")
 
-                async for line in response.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    data = json.loads(line[6:])
-                    event_type = data.get("type")
+            async for line in response.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                data = json.loads(line[6:])
+                event_type = data.get("type")
 
-                    if event_type == "content_block_delta":
-                        delta = data.get("delta", {})
-                        if delta.get("type") == "text_delta":
-                            yield delta["text"]
-                    elif event_type == "message_stop":
-                        break
+                if event_type == "content_block_delta":
+                    delta = data.get("delta", {})
+                    if delta.get("type") == "text_delta":
+                        yield delta["text"]
+                elif event_type == "message_stop":
+                    break

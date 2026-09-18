@@ -2,6 +2,7 @@ import logging
 from typing import Dict, Any
 import httpx
 from .stt_base import STTService
+from .clients import get_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -41,23 +42,23 @@ class ClovaCsrService(STTService):
 
             url = f"{self.base_url}/recog/v1/stt?lang={csr_lang}"
 
-            async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=15.0)) as client:
-                response = await client.post(
-                    url,
-                    headers={
-                        "X-NCP-APIGW-API-KEY-ID": client_id,
-                        "X-NCP-APIGW-API-KEY": client_secret,
-                        "Content-Type": "application/octet-stream",
-                    },
-                    content=audio_data,
-                )
+            response = await get_http_client().post(
+                url,
+                headers={
+                    "X-NCP-APIGW-API-KEY-ID": client_id,
+                    "X-NCP-APIGW-API-KEY": client_secret,
+                    "Content-Type": "application/octet-stream",
+                },
+                content=audio_data,
+                timeout=httpx.Timeout(60.0, connect=15.0),
+            )
 
-                if response.status_code != 200:
-                    error_text = response.text[:500]
-                    logger.error(f"[CLOVA-CSR ERROR] HTTP {response.status_code}: {error_text}")
-                    raise Exception(f"CLOVA CSR API error: {response.status_code} {error_text}")
+            if response.status_code != 200:
+                error_text = response.text[:500]
+                logger.error(f"[CLOVA-CSR ERROR] HTTP {response.status_code}: {error_text}")
+                raise Exception(f"CLOVA CSR API error: {response.status_code} {error_text}")
 
-                result = response.json()
+            result = response.json()
 
             text = result.get("text", "")
             logger.info(f"[CLOVA-CSR] Recognized: {len(text)} chars")

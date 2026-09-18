@@ -10,6 +10,7 @@ Provider selection:
 - provider="imagen"  → Vertex AI Imagen 3 inpainting (original size preserved)
 - provider=None      → default (imagen)
 """
+import asyncio
 import io
 import os
 import json
@@ -20,8 +21,9 @@ from typing import Dict, Any, Optional, List
 from PIL import Image, ImageDraw
 from google import genai
 from google.genai import types
-from openai import OpenAI
 import httpx
+
+from .clients import get_async_openai, get_genai_client, get_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +108,7 @@ class ImageEditService:
                 }
 
             # Step 2: Generate mask from bounding boxes
-            mask_bytes = self._create_mask(boxes, orig_width, orig_height)
+            mask_bytes = await asyncio.to_thread(self._create_mask, boxes, orig_width, orig_height)
 
         # Step 3: Inpaint with selected provider
         if provider == "dall-e":
@@ -130,7 +132,7 @@ class ImageEditService:
     async def _detect_text_regions(self, image_b64: str, media_type: str) -> List[Dict]:
         """Use Gemini Vision to detect text bounding boxes."""
         try:
-            client = genai.Client(api_key=self.google_api_key)
+            client = get_genai_client(self.google_api_key)
 
             image_part = types.Part(
                 inline_data=types.Blob(
@@ -139,7 +141,7 @@ class ImageEditService:
                 )
             )
 
-            response = client.models.generate_content(
+            response = await client.aio.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=[image_part, TEXT_DETECTION_PROMPT],
                 config=types.GenerateContentConfig(
@@ -278,21 +280,18 @@ class ImageEditService:
     async def _inpaint_dalle(self, original: Image.Image, mask_bytes: bytes, orig_w: int, orig_h: int) -> str:
         """Inpaint using OpenAI DALL-E 2."""
         try:
-            client = OpenAI(
-                api_key=self.openai_api_key,
-                timeout=httpx.Timeout(120.0, connect=30.0),
-                max_retries=0,
-            )
+            client = get_async_openai(self.openai_api_key, None, httpx.Timeout(120.0, connect=30.0))
 
-            image_bytes = self._resize_to_square(original, 1024)
-            openai_mask = self._mask_to_openai_format(mask_bytes, 1024)
+            # PIL work (incl. a per-pixel loop) runs off the event loop
+            image_bytes = await asyncio.to_thread(self._resize_to_square, original, 1024)
+            openai_mask = await asyncio.to_thread(self._mask_to_openai_format, mask_bytes, 1024)
 
             image_file = io.BytesIO(image_bytes)
             image_file.name = "image.png"
             mask_file = io.BytesIO(openai_mask)
             mask_file.name = "mask.png"
 
-            response = client.images.edit(
+            response = await client.images.edit(
                 model="dall-e-2",
                 image=image_file,
                 mask=mask_file,
@@ -307,10 +306,9 @@ class ImageEditService:
                 url = getattr(data0, "url", None)
                 if not url:
                     raise Exception("DALL-E response missing both b64_json and url")
-                async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=15.0)) as http:
-                    r = await http.get(url)
-                    r.raise_for_status()
-                    result_b64 = base64.b64encode(r.content).decode("ascii")
+                r = await get_http_client().get(url, timeout=httpx.Timeout(60.0, connect=15.0))
+                r.raise_for_status()
+                result_b64 = base64.b64encode(r.content).decode("ascii")
 
             logger.info(f"[IMAGE-EDIT/DALL-E] Inpainting complete, b64 length: {len(result_b64)}")
             return result_b64
@@ -362,7 +360,7 @@ class ImageEditService:
                 ),
             )
 
-            response = client.models.edit_image(
+            response = await client.aio.models.edit_image(
                 model="imagen-3.0-capability-001",
                 prompt=IMAGEN_INPAINT_PROMPT,
                 reference_images=[raw_ref, mask_ref],

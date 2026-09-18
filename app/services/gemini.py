@@ -5,6 +5,7 @@ import logging
 import os
 from typing import List, Dict, Any, Optional
 from .base import AIService
+from .clients import get_genai_client
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ class GeminiService(AIService):
 
     def __init__(self, api_key: str, model: str, base_url: str = None):
         super().__init__(api_key, model, base_url)
-        self.client = genai.Client(api_key=self.api_key, http_options={"timeout": _SDK_TIMEOUT_MS})
+        self.client = get_genai_client(self.api_key, _SDK_TIMEOUT_MS)
         logger.info(f"[GEMINI] Initialized with model: {model}")
 
     async def chat(

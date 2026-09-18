@@ -4,6 +4,7 @@ from typing import Dict, Any
 from google import genai
 from google.genai import types
 from .image_base import ImageService
+from .clients import get_genai_client
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ class ImagenService(ImageService):
         logger.info(f"[IMAGEN] Prompt: {prompt[:80]}..., Aspect: {aspect_ratio}, Style: {style}")
 
         try:
-            client = genai.Client(api_key=self.api_key)
+            client = get_genai_client(self.api_key)
 
             config = types.GenerateImagesConfig(
                 number_of_images=1,
@@ -55,7 +56,7 @@ class ImagenService(ImageService):
             elif style == "artistic":
                 style_suffix = ", artistic style, painterly"
 
-            response = client.models.generate_images(
+            response = await client.aio.models.generate_images(
                 model=self.model,
                 prompt=prompt + style_suffix,
                 config=config,

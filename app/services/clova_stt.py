@@ -3,6 +3,7 @@ import logging
 from typing import Dict, Any, Optional
 import httpx
 from .stt_base import STTService
+from .clients import get_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -43,26 +44,26 @@ class ClovaSttService(STTService):
             # CLOVA Speech Long uses multipart upload to /recognizer/upload
             upload_url = f"{self.base_url}/recognizer/upload"
 
-            async with httpx.AsyncClient(timeout=httpx.Timeout(180.0, connect=30.0)) as client:
-                response = await client.post(
-                    upload_url,
-                    headers={
-                        "X-CLOVASPEECH-API-KEY": self.api_key,
-                    },
-                    files={
-                        "media": (filename, audio_data, "application/octet-stream"),
-                    },
-                    data={
-                        "params": params,
-                    }
-                )
+            response = await get_http_client().post(
+                upload_url,
+                headers={
+                    "X-CLOVASPEECH-API-KEY": self.api_key,
+                },
+                files={
+                    "media": (filename, audio_data, "application/octet-stream"),
+                },
+                data={
+                    "params": params,
+                },
+                timeout=httpx.Timeout(180.0, connect=30.0),
+            )
 
-                if response.status_code != 200:
-                    error_text = response.text[:500]
-                    logger.error(f"[CLOVA ERROR] HTTP {response.status_code}: {error_text}")
-                    raise Exception(f"CLOVA Speech API error: {response.status_code} {error_text}")
+            if response.status_code != 200:
+                error_text = response.text[:500]
+                logger.error(f"[CLOVA ERROR] HTTP {response.status_code}: {error_text}")
+                raise Exception(f"CLOVA Speech API error: {response.status_code} {error_text}")
 
-                result = response.json()
+            result = response.json()
 
             # Extract text from response
             text = result.get("text", "")

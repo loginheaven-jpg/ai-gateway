@@ -72,6 +72,7 @@ class _UsageWriter:
         self.dropped = 0   # queue full
         self.failed = 0    # DB write failed after reconnect
         self.written = 0
+        self._index_checked = False
 
     def start(self):
         with self._lock:
@@ -131,7 +132,28 @@ class _UsageWriter:
         cur = conn.cursor()
         cur.execute(_usage_table_sql())
         conn.commit()
+        if not self._index_checked:
+            self._ensure_index(conn)
         return conn
+
+    def _ensure_index(self, conn):
+        """Index for the dashboard's timestamp range scans. Built once, here in
+        the writer thread (not in startup), CONCURRENTLY on PostgreSQL so inserts
+        are not blocked while it builds."""
+        self._index_checked = True
+        sql = "CREATE INDEX {c} IF NOT EXISTS idx_usage_logs_timestamp ON usage_logs (timestamp)"
+        try:
+            if USE_POSTGRES:
+                conn.autocommit = True
+                try:
+                    conn.cursor().execute(sql.format(c="CONCURRENTLY"))
+                finally:
+                    conn.autocommit = False
+            else:
+                conn.cursor().execute(sql.format(c=""))
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"[USAGE LOG] timestamp index not created: {type(e).__name__}: {e}")
 
     @staticmethod
     def _close(conn):

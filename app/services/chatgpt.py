@@ -1,28 +1,17 @@
 from openai import AsyncOpenAI
 import httpx
 import logging
-from typing import List, Dict, Any, Optional, AsyncGenerator, Tuple
+from typing import List, Dict, Any, Optional, AsyncGenerator
 from .base import AIService
+from .clients import get_async_openai
 
 logger = logging.getLogger(__name__)
 
-# One async client per (api_key, base_url), reused across requests. The async
-# client never blocks the event loop, and asyncio.wait_for can cancel it.
-_clients: Dict[Tuple[str, str], AsyncOpenAI] = {}
-
 
 def _get_client(api_key: str, base_url: str) -> AsyncOpenAI:
-    key = (api_key, base_url)
-    client = _clients.get(key)
-    if client is None:
-        client = AsyncOpenAI(
-            api_key=api_key,
-            base_url=base_url,
-            timeout=httpx.Timeout(300.0, connect=60.0),  # 5 min timeout
-            max_retries=0,  # gateway handles fallback; SDK retries on permanent errors waste time
-        )
-        _clients[key] = client
-    return client
+    # Shared async client (max_retries=0: the gateway handles fallback). It never
+    # blocks the event loop, and asyncio.wait_for can cancel it.
+    return get_async_openai(api_key, base_url, httpx.Timeout(300.0, connect=60.0))
 
 
 class ChatGPTService(AIService):

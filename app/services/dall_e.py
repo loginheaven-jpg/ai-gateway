@@ -1,8 +1,8 @@
 import logging
 from typing import Dict, Any
-from openai import OpenAI
 import httpx
 from .image_base import ImageService
+from .clients import get_async_openai
 
 logger = logging.getLogger(__name__)
 
@@ -33,13 +33,9 @@ class DallEService(ImageService):
         logger.info(f"[DALL-E] Prompt: {prompt[:80]}..., Size: {dalle_size}, Style: {dalle_style}")
 
         try:
-            client = OpenAI(
-                api_key=self.api_key,
-                timeout=httpx.Timeout(120.0, connect=30.0),
-                max_retries=0,
-            )
+            client = get_async_openai(self.api_key, None, httpx.Timeout(120.0, connect=30.0))
 
-            response = client.images.generate(
+            response = await client.images.generate(
                 model=self.model,
                 prompt=prompt,
                 size=dalle_size,

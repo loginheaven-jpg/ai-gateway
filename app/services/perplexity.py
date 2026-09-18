@@ -2,6 +2,7 @@ import httpx
 import logging
 from typing import List, Dict, Any, Optional
 from .base import AIService
+from .clients import get_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -39,14 +40,14 @@ class PerplexityService(AIService):
             "messages": all_messages
         }
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                f"{self.base_url}/chat/completions",
-                headers=headers,
-                json=payload
-            )
-            response.raise_for_status()
-            data = response.json()
+        response = await get_http_client().post(
+            f"{self.base_url}/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=120.0,
+        )
+        response.raise_for_status()
+        data = response.json()
 
         # 응답 구조 디버그 로깅 (DEBUG 수준 — 운영 INFO 에서는 찍히지 않음)
         logger.debug(f"[Perplexity] TOP-LEVEL KEYS: {list(data.keys())}")
