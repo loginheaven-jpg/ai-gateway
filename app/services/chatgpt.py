@@ -1,10 +1,28 @@
-from openai import OpenAI
+from openai import AsyncOpenAI
 import httpx
 import logging
-from typing import List, Dict, Any, Optional, AsyncGenerator
+from typing import List, Dict, Any, Optional, AsyncGenerator, Tuple
 from .base import AIService
 
 logger = logging.getLogger(__name__)
+
+# One async client per (api_key, base_url), reused across requests. The async
+# client never blocks the event loop, and asyncio.wait_for can cancel it.
+_clients: Dict[Tuple[str, str], AsyncOpenAI] = {}
+
+
+def _get_client(api_key: str, base_url: str) -> AsyncOpenAI:
+    key = (api_key, base_url)
+    client = _clients.get(key)
+    if client is None:
+        client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=httpx.Timeout(300.0, connect=60.0),  # 5 min timeout
+            max_retries=0,  # gateway handles fallback; SDK retries on permanent errors waste time
+        )
+        _clients[key] = client
+    return client
 
 
 class ChatGPTService(AIService):
@@ -44,13 +62,7 @@ class ChatGPTService(AIService):
         logger.info(f"[OPENAI] Messages: {len(messages)}, System prompt: {len(system_prompt) if system_prompt else 0} chars")
 
         try:
-            # Use configured OpenAI endpoint with extended timeout
-            client = OpenAI(
-                api_key=self.api_key,
-                base_url=self.base_url,
-                timeout=httpx.Timeout(300.0, connect=60.0),  # 5 min timeout
-                max_retries=0,  # gateway handles fallback; SDK retries on permanent errors waste time
-            )
+            client = _get_client(self.api_key, self.base_url)
 
             # Transform image blocks to OpenAI format
             messages = self._transform_messages_for_openai(messages)
@@ -65,7 +77,7 @@ class ChatGPTService(AIService):
 
             # Call OpenAI API using SDK
             # GPT-5.1 and newer models require max_completion_tokens instead of max_tokens
-            response = client.chat.completions.create(
+            response = await client.chat.completions.create(
                 model=self.model,
                 messages=all_messages,
                 temperature=temperature,
@@ -96,12 +108,7 @@ class ChatGPTService(AIService):
         max_tokens: int = 4096,
         temperature: float = 0.7
     ) -> AsyncGenerator[str, None]:
-        client = OpenAI(
-            api_key=self.api_key,
-            base_url=self.base_url,
-            timeout=httpx.Timeout(300.0, connect=60.0),
-            max_retries=0,
-        )
+        client = _get_client(self.api_key, self.base_url)
 
         messages = self._transform_messages_for_openai(messages)
 
@@ -110,7 +117,7 @@ class ChatGPTService(AIService):
             all_messages.append({"role": "system", "content": system_prompt})
         all_messages.extend(messages)
 
-        stream = client.chat.completions.create(
+        stream = await client.chat.completions.create(
             model=self.model,
             messages=all_messages,
             temperature=temperature,
@@ -118,6 +125,6 @@ class ChatGPTService(AIService):
             stream=True
         )
 
-        for chunk in stream:
+        async for chunk in stream:
             if chunk.choices and chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
