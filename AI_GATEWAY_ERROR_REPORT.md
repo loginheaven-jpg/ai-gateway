@@ -104,6 +104,8 @@ Google Gemini 직접 호출은 정상이므로 Google 장애가 아님. 후보:
 ### C. 견고화 (재발 방지)
 7. **부팅 시 구성 검증**: 설정된 모든 모델 ID를 각 provider API로 핑(또는 허용목록 대조). 404 모델이 있으면 부팅 실패/강한 경고.
 8. **헬스 엔드포인트**: `GET /health/providers` — provider별 마지막 성공/실패·모델 유효성(주기적 self-test). 클라이언트·모니터링이 사전 감지 가능.
+   > 구현됨: `GET /api/ai/health/providers`. 모든 공급사에 실제 호출(요금 발생)을 하므로 2026-09부터 관리자 토큰(`X-Admin-Token`)이 필요합니다.
+   > 토큰 없이 쓸 수 있는 가벼운 상태 확인은 `GET /health`(`config_source`, `usage_log` 포함)와 `GET /api/ai/health/breaker`입니다.
 9. **알림**: `insufficient_quota`, 반복 `model not_found(404)`, `all_providers_failed` 발생 시 즉시 알림.
 10. **폴백 순서 재검토**: 비용·안정성 기준. 비싼 gpt-5.1이 1순위 폴백이라 quota에 가장 먼저 부딪힘 → `gemini-flash → claude-haiku → gpt` 처럼 저렴·안정 모델을 앞 폴백으로.
 11. **응답 `model` 필드 유지**: 실제 서빙 모델을 응답에 노출하는 현 동작은 매우 유용 — 유지 권장(클라가 폴백 여부를 인지).

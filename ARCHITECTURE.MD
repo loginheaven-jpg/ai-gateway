@@ -49,11 +49,12 @@ ai-gateway/
 
 | Provider ID | 이름 | 기본 모델 | 용도 |
 |-------------|------|-----------|------|
-| `claude-sonnet` | Claude Sonnet (Anthropic) | claude-sonnet-4-5 | 고성능 분석/작성 |
+| `claude-sonnet` | Claude Sonnet (Anthropic) | claude-sonnet-5 (추론 끔) | 고성능 분석/작성 |
 | `claude-haiku` | Claude Haiku (Anthropic) | claude-haiku-4-5-20251001 | 빠른 응답/경량 작업 |
-| `chatgpt` | ChatGPT (OpenAI) | gpt-5.1 | 범용 AI |
-| `gemini-pro` | Gemini Pro (Google) | gemini-3-pro-preview | 고성능 분석 |
-| `gemini-flash` | Gemini Flash (Google) | gemini-2.5-flash | 빠른 응답 |
+| `chatgpt` | ChatGPT (OpenAI) | gpt-5.6-terra (추론 끔) | 범용 AI |
+| `openai` | GPT (OpenAI) — 옛 별칭, 별도 행 | (DB 설정값) | 기존 앱 호환 |
+| `gemini-pro` | Gemini Pro (Google) | gemini-pro-latest | 고성능 분석 |
+| `gemini-flash` | Gemini Flash (Google) | gemini-3.8-flash (추론 low, 6초 → 3.5-flash-lite 대체) | 빠른 응답 |
 | `moonshot` | Moonshot (Kimi) | kimi-k2-0905-preview | 중국어 특화 |
 | `perplexity` | Perplexity | sonar-pro | 웹 검색 + AI 답변 |
 
@@ -69,8 +70,11 @@ ai-gateway/
 
 | Provider ID | 이름 | 기본 모델 | 용도 |
 |-------------|------|-----------|------|
-| `dall-e` | DALL-E 3 (OpenAI) | dall-e-3 | 범용 이미지 생성 **(기본값)** |
-| `imagen` | Imagen 3 (Google) | imagen-3.0-generate-002 | 풍경/자연 고품질 |
+| `dall-e` | GPT Image (OpenAI) | gpt-image-2.5-flare | 범용 이미지 생성 **(기본값)** |
+| `imagen` | Gemini Image (Google) | gemini-3.1-flash-image | 풍경/자연 고품질 |
+
+> DALL-E 2/3(OpenAI)과 Imagen 3(Gemini API)은 퇴역했습니다. 별칭(`dall-e`, `imagen`)은 그대로이며,
+> DB에 옛 모델 ID가 남아 있으면 시작할 때 위 모델로 자동 치유됩니다.
 
 ---
 
@@ -123,7 +127,7 @@ AI 프로바이더에 채팅 요청을 보냅니다. **Fallback 체인**, **응�
 ```json
 {
   "content": "오늘 서울 날씨는...",
-  "model": "claude-sonnet-4-5",
+  "model": "claude-sonnet-5",
   "provider": "claude-sonnet",
   "usage": {
     "input_tokens": 150,
@@ -144,19 +148,21 @@ AI 프로바이더에 채팅 요청을 보냅니다. **Fallback 체인**, **응�
 ```
 
 **사용 가능한 provider 값:**
-`claude-sonnet`, `claude-haiku`, `chatgpt`, `gemini-pro`, `gemini-flash`, `moonshot`, `perplexity`
+`claude-sonnet`, `claude-haiku`, `chatgpt`, `openai`(옛 별칭), `gemini-pro`, `gemini-flash`, `moonshot`, `perplexity`
 
 **Fallback 체인 (기본):**
 
 | Primary | Fallback 순서 |
 |---------|---------------|
-| claude-sonnet | claude-haiku → chatgpt → gemini-pro |
-| claude-haiku | claude-sonnet → chatgpt → gemini-flash |
-| chatgpt | claude-sonnet → gemini-pro |
-| gemini-pro | gemini-flash → claude-sonnet → chatgpt |
-| gemini-flash | gemini-pro → claude-haiku → chatgpt |
-| moonshot | claude-sonnet → chatgpt |
-| perplexity | chatgpt → claude-sonnet |
+| claude-sonnet | claude-haiku → gemini-pro → chatgpt |
+| claude-haiku | claude-sonnet → gemini-flash → chatgpt |
+| chatgpt / openai | claude-haiku → claude-sonnet → gemini-pro |
+| gemini-pro | claude-haiku → gemini-flash → claude-sonnet → chatgpt |
+| gemini-flash | claude-haiku → gemini-pro → chatgpt |
+| moonshot | claude-haiku → claude-sonnet → chatgpt |
+| perplexity | claude-haiku → claude-sonnet → chatgpt |
+
+순서의 기준은 코드(`app/routers/ai.py`의 `FALLBACK_CHAINS`)입니다. `use_fallback: false`면 1차 provider만 시도합니다.
 
 ---
 
@@ -206,7 +212,7 @@ while (true) {
 
 ### `POST /api/ai/batch-chat`
 
-여러 프로바이더에 동시에 테스트 요청을 보냅니다.
+여러 프로바이더에 동시에 테스트 요청을 보냅니다. **관리자 토큰 필요** (`X-Admin-Token`).
 
 **Request Body:**
 
@@ -228,7 +234,7 @@ while (true) {
       "provider": "claude-sonnet",
       "success": true,
       "response": "안녕하세요!",
-      "model": "claude-sonnet-4-5",
+      "model": "claude-sonnet-5",
       "elapsed_ms": 1200
     },
     {
@@ -255,7 +261,7 @@ while (true) {
     {
       "id": "claude-sonnet",
       "name": "Claude Sonnet (Anthropic)",
-      "model": "claude-sonnet-4-5",
+      "model": "claude-sonnet-5",
       "enabled": true,
       "has_api_key": true,
       "is_default": true
@@ -268,6 +274,15 @@ while (true) {
 ---
 
 ## 2. Settings API
+
+> **모든 `/api/settings/*` 경로는 관리자 토큰이 필요합니다.** 헤더 `X-Admin-Token`이 환경변수
+> `GATEWAY_ADMIN_TOKEN`과 같아야 하며, 틀리면 401, 서버에 토큰이 설정돼 있지 않으면 503입니다.
+> `/api/ai/health/providers`, `/api/ai/health/breaker/reset`, `/api/ai/batch-chat`도 같습니다.
+> 앱이 부르는 `/api/ai/chat`, `/chat/stream`, `/stt`, `/image`, `/image/edit`에는 필요 없습니다.
+> 설정은 서버 시작 시 DB에서 한 번 읽어 메모리에 둡니다. DB를 직접 고쳤다면 서비스를 재시작하십시오.
+>
+> `PUT /api/settings/provider/{id}`는 `options`도 받습니다: `{"reasoning": "off|low|medium|high", "fallback_model": "...", "fallback_after_s": 6}`.
+> `{}`를 보내면 권장 기본값으로 돌아갑니다. 조회 응답의 `effective_options`가 실제로 쓰이는 값입니다.
 
 ### `GET /api/settings/providers`
 
@@ -284,7 +299,7 @@ while (true) {
 ```json
 {
   "api_key": "sk-...",     // (선택)
-  "model": "claude-sonnet-4-5",   // (선택)
+  "model": "claude-sonnet-5",   // (선택)
   "enabled": true          // (선택)
 }
 ```
@@ -330,7 +345,7 @@ JSON 설정 가져오기
 
 ### `GET /api/settings/usage/logs?limit=50`
 
-최근 사용 로그 조회.
+최근 사용 로그 조회. `limit`은 1~500.
 
 ### `GET /api/settings/cache/stats`
 
@@ -436,7 +451,9 @@ STT 프로바이더 목록을 조회합니다.
 | Method | Path | 설명 |
 |--------|------|------|
 | `GET` | `/` | 관리자 대시보드 (HTML) |
-| `GET` | `/health` | 헬스체크 (`{"status": "healthy"}`) |
+| `GET` | `/health` | 헬스체크 (`status`, `service`, `config_source`: `db`/`env_fallback`, `usage_log`: 기록 큐 상태) |
+| `GET` | `/api/ai/health/breaker` | 차단기 상태 |
+| `GET` | `/api/ai/health/providers` | 공급사별 실제 호출 점검 (관리자 토큰 필요) |
 | `GET` | `/docs` | FastAPI Swagger UI |
 
 ---
@@ -495,18 +512,24 @@ curl -X POST https://<gateway-url>/api/ai/chat \
 | 변수명 | 설명 | 기본값 |
 |--------|------|--------|
 | `ANTHROPIC_API_KEY` | Anthropic API 키 | - |
-| `CLAUDE_SONNET_MODEL` | Claude Sonnet 모델 | claude-sonnet-4-5 |
+| `CLAUDE_SONNET_MODEL` | Claude Sonnet 모델 | claude-sonnet-5 |
 | `CLAUDE_HAIKU_MODEL` | Claude Haiku 모델 | claude-haiku-4-5-20251001 |
 | `OPENAI_API_KEY` | OpenAI API 키 | - |
-| `OPENAI_MODEL` | OpenAI 모델 | gpt-5.1 |
+| `OPENAI_MODEL` | OpenAI 모델 | gpt-5.6-terra |
 | `GOOGLE_API_KEY` | Google AI API 키 | - |
-| `GEMINI_PRO_MODEL` | Gemini Pro 모델 | gemini-3-pro-preview |
-| `GEMINI_FLASH_MODEL` | Gemini Flash 모델 | gemini-2.5-flash |
+| `GEMINI_PRO_MODEL` | Gemini Pro 모델 | gemini-pro-latest |
+| `GEMINI_FLASH_MODEL` | Gemini Flash 모델 | gemini-3.8-flash |
 | `MOONSHOT_API_KEY` | Moonshot API 키 | - |
 | `MOONSHOT_MODEL` | Moonshot 모델 | kimi-k2-0905-preview |
 | `PERPLEXITY_API_KEY` | Perplexity API 키 | - |
 | `PERPLEXITY_MODEL` | Perplexity 모델 | sonar-pro |
 | `DEFAULT_AI_PROVIDER` | 기본 Chat 프로바이더 | claude-sonnet |
+| `GATEWAY_ADMIN_TOKEN` | 관리 API 토큰 (없으면 관리 API 503) | - |
+| `AI_PROVIDER_DEADLINE_S` | 공급사 호출 1회 상한(초) | 15 |
+| `AI_TOTAL_BUDGET_S` | 폴백 포함 요청 전체 상한(초) | 28 |
+| `DB_CONNECT_TIMEOUT_S` | DB 연결 타임아웃(초) | 5 |
+| `IMAGE_EDIT_OPENAI_MODEL` | 이미지 편집(OpenAI 경로) 모델 | gpt-image-2 |
+| `GEMINI_BASE_URL` | Gemini API 주소 덮어쓰기(시험·프록시용, 운영에서는 비움) | - |
 | `DATABASE_URL` | PostgreSQL 연결 URL | (SQLite fallback) |
 | `CLOVA_CSR_CLIENT_ID` | CLOVA CSR Client ID | - |
 | `CLOVA_CSR_CLIENT_SECRET` | CLOVA CSR Client Secret | - |

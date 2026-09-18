@@ -35,11 +35,11 @@ Content-Type: application/json
 
 | 별칭 | 엔진 | 특징 |
 |------|------|------|
-| `claude-sonnet` | Claude Sonnet 4.5 | 고성능 분석/작성 **(기본값)** |
+| `claude-sonnet` | Claude Sonnet 5 | 고성능 분석/작성 **(기본값)** |
 | `claude-haiku` | Claude Haiku 4.5 | 빠른 응답, 경량 작업 |
-| `chatgpt` | GPT 5.1 | 범용 AI |
-| `gemini-pro` | Gemini 3 Pro | 고성능 분석 |
-| `gemini-flash` | Gemini 2.5 Flash | 빠른 응답 |
+| `chatgpt` (`openai`는 같은 뜻의 옛 이름) | GPT-5.6 terra | 범용 AI |
+| `gemini-pro` | Gemini Pro (latest) | 고성능 분석, 느림 |
+| `gemini-flash` | Gemini 3.8 Flash | 빠른 응답 |
 | `moonshot` | Kimi K2 | 중국어 특화 |
 | `perplexity` | Sonar Pro | 웹 검색 + AI 답변 |
 
@@ -80,36 +80,89 @@ const res = await fetch(`${AI_GATEWAY_URL}/api/ai/chat`, {
   ],
   "system_prompt": "당신은 목사입니다.", // (선택) 시스템 프롬프트
   "max_tokens": 4096,                 // (선택) 최대 토큰
-  "temperature": 0.7,                 // (선택) 창의성 (0~1)
+  "temperature": 0.7,                 // (선택) 창의성 (0~1). null이면 보내지 않음
   "use_fallback": true,               // (선택) 실패 시 자동 대체
   "use_cache": true,                   // (선택) 동일 요청 캐시
-  "caller": "saint-record:memo"        // (선택) 호출자 식별 (사용량 추적)
+  "caller": "saint-record:memo",       // (선택) 호출자 식별 (사용량 추적)
+  "model": "claude-sonnet-5",          // (선택) 아래 '모델·옵션 지정' 참고
+  "options": { "reasoning": "off" }    // (선택) 아래 '모델·옵션 지정' 참고
 }
 ```
+
+### 모델·옵션 지정 (선택, 2026-09 추가)
+
+필드를 보내지 않으면 별칭의 **권장 기본값**이 쓰입니다(아래 표). 기능마다 다르게 쓰고 싶을 때만 지정하세요.
+
+```json
+{
+  "provider": "gemini-flash",
+  "model": "gemini-3.5-flash-lite",     // (선택) 같은 회사 모델만. 다른 회사 모델이면 400
+  "options": { "reasoning": "off" },    // (선택) off | low | medium | high
+  "temperature": 0,                     // (선택) null 이면 보내지 않음
+  "messages": [{ "role": "user", "content": "..." }]
+}
+```
+
+- `reasoning`은 공급사마다 이름이 다른 추론/thinking 설정을 하나로 묶은 값입니다. 게이트웨이가 모델에 맞게 바꿔 보냅니다.
+  모델이 받지 못하는 값은 가능한 가장 가까운 값으로 바뀌거나 빠집니다(예: Gemini Pro는 추론을 끌 수 없어 `low`, Claude 5·GPT 추론 모드는 temperature를 받지 않음).
+- 퇴역한 모델 이름을 보내면 후속 모델로 자동으로 바뀝니다.
+- `model`은 1차 provider에만 적용됩니다. 다른 공급사로 폴백하면 그 별칭의 기본값을 쓰고, `options.reasoning`은 이어 받습니다.
+- 모델 이름을 코드에 박으면 모델이 퇴역할 때 앱을 고쳐야 합니다. **기본은 별칭만 쓰고, 꼭 필요할 때만 `model`을 지정**하세요.
+
+**권장 기본값** (요청에 없을 때. 관리 화면에서 별칭별로 바꿀 수 있고, 카드에 표시됩니다)
+
+| 별칭 | 모델 | 추론 | 같은 계열 대체 |
+|------|------|------|------|
+| `claude-sonnet` | claude-sonnet-5 | 끔 | – |
+| `claude-haiku` | claude-haiku-4-5 | 끔 | – |
+| `chatgpt`, `openai` | gpt-5.6-terra | 끔 | – |
+| `gemini-flash` | gemini-3.8-flash | low | 6초 안에 답이 없으면 gemini-3.5-flash-lite |
+| `gemini-pro` | gemini-pro-latest | 모델 기본값(끌 수 없음) | – |
+
+같은 계열 대체는 같은 회사 모델로만 바꾸므로 `use_fallback: false`여도 적용됩니다(칸 이름이 그대로 맞음).
+
 
 ### 응답 형식
 
 ```json
 {
   "content": "안녕하세요! 무엇을 도와드릴까요?",
-  "model": "claude-sonnet-4-5",
+  "model": "claude-sonnet-5",
   "provider": "claude-sonnet",
   "usage": {
     "input_tokens": 15,
     "output_tokens": 25
+  },
+  "finish_reason": "stop",
+  "applied": {
+    "provider": "claude-sonnet",
+    "model": "claude-sonnet-5",
+    "reasoning": "off",
+    "temperature": null,
+    "fallback_from": null
   }
 }
 ```
+
+- `finish_reason`: `stop`(정상 끝) · `length`(max_tokens에 걸려 잘림) · 그 밖의 공급사 값. **잘림은 이 값으로 판정하세요.**
+- `applied`: 실제로 쓴 별칭·모델·추론·temperature. 같은 계열 대체가 일어나면 `fallback_from`에 원래 모델이 적힙니다.
+- ChatGPT가 빈 답을 내면 실패로 처리해 폴백합니다(`use_fallback: false`면 500).
 
 ### Fallback (자동 대체)
 
 1차 프로바이더가 실패하면 자동으로 다른 엔진을 시도합니다.
 
-| 1차 | → 2차 → 3차 |
-|-----|-------------|
-| claude-sonnet | claude-haiku → chatgpt → gemini-pro |
-| chatgpt | claude-sonnet → gemini-pro |
-| gemini-pro | gemini-flash → claude-sonnet → chatgpt |
+| Primary | Fallback 순서 |
+|---------|---------------|
+| claude-sonnet | claude-haiku → gemini-pro → chatgpt |
+| claude-haiku | claude-sonnet → gemini-flash → chatgpt |
+| chatgpt / openai | claude-haiku → claude-sonnet → gemini-pro |
+| gemini-pro | claude-haiku → gemini-flash → claude-sonnet → chatgpt |
+| gemini-flash | claude-haiku → gemini-pro → chatgpt |
+| moonshot | claude-haiku → claude-sonnet → chatgpt |
+| perplexity | claude-haiku → claude-sonnet → chatgpt |
+
+순서의 기준은 코드(`app/routers/ai.py`의 `FALLBACK_CHAINS`)입니다. `use_fallback: false`면 1차 provider만 시도합니다.
 
 응답의 `provider` 필드로 실제 사용된 엔진을 확인할 수 있습니다.
 
@@ -258,8 +311,10 @@ Content-Type: application/json
 
 | 별칭 | 엔진 | 특징 |
 |------|------|------|
-| `dall-e` | DALL-E 3 (OpenAI) | 범용, 프롬프트 자동 개선 **(기본값)** |
-| `imagen` | Imagen 3 (Google) | 풍경/자연 고품질 |
+| `dall-e` | GPT Image (OpenAI, `gpt-image-2.5-flare`) | 범용 **(기본값)** |
+| `imagen` | Gemini Image (Google, `gemini-3.1-flash-image`) | 풍경/자연 고품질 |
+
+> 별칭은 그대로입니다. DALL-E 3 / Imagen 3 퇴역에 따라 엔진만 바뀌었습니다(2026-09).
 
 ### 호출 예시
 
@@ -294,12 +349,14 @@ const imgSrc = `data:${data.media_type};base64,${data.data}`;
 
 ### 지원 사이즈
 
-| 사이즈 | DALL-E 3 | Imagen 3 |
+| 사이즈 | GPT Image (`dall-e`) | Gemini Image (`imagen`) |
 |--------|----------|----------|
-| `1024x1024` | O (1:1) | O (1:1) |
-| `1080x1350` | O → 1024x1792 | O (3:4) |
-| `1792x1024` | O (16:9) | O (16:9) |
-| `1024x1792` | O (9:16) | O (9:16) |
+| `1024x1024` | 1024x1024 | 1:1 |
+| `1080x1350` | → 1024x1536 | 3:4 |
+| `1792x1024` | → 1536x1024 | 16:9 |
+| `1024x1792` | → 1024x1536 | 9:16 |
+
+응답의 `size`는 실제로 생성한 크기(GPT Image) 또는 비율(Gemini Image)입니다. 두 엔진 모두 `media_type`은 `image/png`입니다.
 
 ### 응답 형식
 
@@ -308,14 +365,14 @@ const imgSrc = `data:${data.media_type};base64,${data.data}`;
   "data": "iVBORw0KGgoAAAA...",
   "media_type": "image/png",
   "provider": "dall-e",
-  "model": "dall-e-3",
+  "model": "gpt-image-2.5-flare",
   "size": "1024x1024",
-  "revised_prompt": "A breathtaking serene mountain...",
+  "revised_prompt": null,
   "elapsed_ms": 8500
 }
 ```
 
-> `revised_prompt`는 DALL-E 3이 자동 개선한 프롬프트입니다 (Imagen은 null).
+> `revised_prompt`는 호환을 위해 남겨 둔 필드로, 현재 엔진에서는 `null`입니다.
 
 ---
 
@@ -335,7 +392,7 @@ Content-Type: application/json
 | 별칭 | 엔진 | 특징 |
 |------|------|------|
 | `imagen` | Imagen 3 (Vertex AI) | 고품질, 원본 크기 유지 **(기본값)** |
-| `dall-e` | DALL-E 2 (OpenAI) | 1024x1024 정사각형 출력 |
+| `dall-e` | GPT Image (OpenAI, `gpt-image-2`) | 1024x1024 정사각형 출력 |
 
 ### 기본 호출 (provider 미지정 → 기본값 imagen)
 
@@ -409,13 +466,13 @@ body: JSON.stringify({
 ### 내부 파이프라인
 1. **Gemini Vision** → 텍스트 영역 bounding box 좌표 탐지
 2. **PIL** → 마스크 이미지 생성
-3. **Imagen 3 또는 DALL-E 2** → 마스크 기반 inpainting (텍스트 제거)
+3. **Imagen 3 (Vertex AI) 또는 GPT Image** → 마스크 기반 inpainting (텍스트 제거)
 
 ### provider 비교
 
-| | Imagen 3 | DALL-E 2 |
+| | Imagen 3 | GPT Image |
 |--|----------|----------|
-| 품질 | 높음 | 보통 |
+| 품질 | 높음 | 보통~높음 (마스크 밖은 그대로 둠) |
 | 출력 크기 | 원본 유지 | 1024x1024 고정 |
 | 비용 | ~$0.04/장 | ~$0.04/장 |
 | 인프라 | Vertex AI (서비스 계정) | API Key |
