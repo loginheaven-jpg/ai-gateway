@@ -148,7 +148,7 @@ def _get_default_providers():
         "claude-sonnet": ProviderConfig(
             name="Claude Sonnet (Anthropic)",
             api_key=os.getenv("ANTHROPIC_API_KEY", ""),
-            model=os.getenv("CLAUDE_SONNET_MODEL", "claude-sonnet-4-5"),
+            model=os.getenv("CLAUDE_SONNET_MODEL", "claude-sonnet-4-6"),
             base_url="https://api.anthropic.com/v1",
             enabled=True
         ),
@@ -380,16 +380,16 @@ def _migrate(config: AIConfig) -> bool:
     # Auto-heal known-retired model IDs that caused the 2026-06-13 outage.
     # Only rewrites exact matches; custom user-set models are untouched.
     RETIRED_MODELS = {
-        "gemini-pro":   ("gemini-3-pro-preview", "gemini-pro-latest"),
-        "gemini-flash": ("gemini-2.5-flash",     "gemini-flash-latest"),
-        "claude-haiku": ("claude-haiku-4-6",     "claude-haiku-4-5-20251001"),
+        "gemini-pro":   ({"gemini-3-pro-preview", "gemini-3.1-pro"}, "gemini-pro-latest"),
+        "gemini-flash": ({"gemini-2.5-flash"},                       "gemini-flash-latest"),
+        "claude-haiku": ({"claude-haiku-4-6"},                       "claude-haiku-4-5-20251001"),
     }
     healed = []
-    for pid, (bad, good) in RETIRED_MODELS.items():
+    for pid, (bad_ids, good) in RETIRED_MODELS.items():
         p = config.providers.get(pid)
-        if p and p.model == bad:
+        if p and p.model in bad_ids:
+            healed.append(f"{pid}:{p.model}->{good}")
             config.providers[pid] = p.model_copy(update={"model": good})
-            healed.append(f"{pid}:{bad}->{good}")
     if healed:
         changed = True
         print(f"[CONFIG] Auto-healed retired models: {healed}")

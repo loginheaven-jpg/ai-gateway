@@ -1,3 +1,4 @@
+import openai
 from openai import AsyncOpenAI
 import httpx
 import logging
@@ -12,6 +13,29 @@ def _get_client(api_key: str, base_url: str) -> AsyncOpenAI:
     # Shared async client (max_retries=0: the gateway handles fallback). It never
     # blocks the event loop, and asyncio.wait_for can cancel it.
     return get_async_openai(api_key, base_url, httpx.Timeout(300.0, connect=60.0))
+
+
+# Models that rejected a non-default temperature (400, param == "temperature").
+# Learned at runtime, not guessed from the model name: gpt-5.1 (chatgpt alias)
+# accepts temperature, gpt-5.5 (openai alias) does not.
+_NO_TEMP_MODELS: set = set()
+
+
+async def _create(client: AsyncOpenAI, model: str, **kwargs):
+    """chat.completions.create; if the model rejects temperature, remember that
+    and retry once without it."""
+    if model in _NO_TEMP_MODELS:
+        kwargs.pop("temperature", None)
+        return await client.chat.completions.create(model=model, **kwargs)
+    try:
+        return await client.chat.completions.create(model=model, **kwargs)
+    except openai.BadRequestError as e:
+        if getattr(e, "param", None) != "temperature":
+            raise
+        logger.warning(f"[OPENAI] {model} rejects temperature; retrying without it")
+        _NO_TEMP_MODELS.add(model)
+        kwargs.pop("temperature", None)
+        return await client.chat.completions.create(model=model, **kwargs)
 
 
 class ChatGPTService(AIService):
@@ -66,15 +90,25 @@ class ChatGPTService(AIService):
 
             # Call OpenAI API using SDK
             # GPT-5.1 and newer models require max_completion_tokens instead of max_tokens
-            response = await client.chat.completions.create(
-                model=self.model,
+            response = await _create(
+                client,
+                self.model,
                 messages=all_messages,
                 temperature=temperature,
                 max_completion_tokens=max_tokens
             )
 
-            content = response.choices[0].message.content
-            logger.info(f"[OPENAI] Response received, content length: {len(content) if content else 0}")
+            choice = response.choices[0]
+            content = choice.message.content or ""
+            if choice.finish_reason == "length":
+                logger.warning(f"[OPENAI] {self.model} hit max_completion_tokens={max_tokens} "
+                               f"(content length {len(content)})")
+            if not content.strip():
+                # An empty answer is a failure, not a success: reasoning tokens can use up
+                # max_completion_tokens. Raising keeps the fallback chain working.
+                raise Exception(f"OpenAI returned an empty answer (finish_reason={choice.finish_reason}, "
+                                f"max_completion_tokens={max_tokens})")
+            logger.info(f"[OPENAI] Response received, content length: {len(content)}")
 
             return {
                 "content": content,
@@ -106,8 +140,9 @@ class ChatGPTService(AIService):
             all_messages.append({"role": "system", "content": system_prompt})
         all_messages.extend(messages)
 
-        stream = await client.chat.completions.create(
-            model=self.model,
+        stream = await _create(
+            client,
+            self.model,
             messages=all_messages,
             temperature=temperature,
             max_completion_tokens=max_tokens,

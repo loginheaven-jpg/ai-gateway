@@ -251,7 +251,7 @@ async def chat(request: ChatRequest):
             result = await _try_provider(pid, request, attempt_deadline)
             breaker.record_success(pid)
 
-            if request.use_cache and not has_images:
+            if request.use_cache and not has_images and pid == provider_id:
                 response_cache.set(
                     provider_id, request.messages, request.system_prompt,
                     request.max_tokens, request.temperature, result
@@ -325,8 +325,10 @@ async def chat_stream(request: ChatRequest):
     try:
         service = get_ai_service(provider_id)
     except HTTPException as e:
+        detail = e.detail
+
         async def error_gen():
-            yield f"data: {json.dumps({'error': e.detail})}\n\n"
+            yield f"data: {json.dumps({'error': detail})}\n\n"
         return StreamingResponse(error_gen(), media_type="text/event-stream")
 
     async def event_generator():
