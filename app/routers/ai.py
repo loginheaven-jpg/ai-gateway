@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
@@ -13,6 +13,7 @@ from ..config import load_config, get_provider
 from ..usage import log_usage
 from ..cache import response_cache
 from ..circuit_breaker import breaker
+from ..auth import require_admin
 from ..services import (
     ClaudeService,
     ChatGPTService,
@@ -21,9 +22,9 @@ from ..services import (
     PerplexityService
 )
 
-# Debug logging
+# INFO, not DEBUG: at DEBUG the openai SDK logs full request bodies (user prompts).
 import logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/ai", tags=["AI"])
@@ -349,7 +350,7 @@ async def chat_stream(request: ChatRequest):
     )
 
 
-@router.get("/health/providers")
+@router.get("/health/providers", dependencies=[Depends(require_admin)])
 async def health_providers():
     """Probe each enabled chat provider with a tiny request. Used by monitoring
     and as a pre-flight check — surfaces stale model IDs / quota issues before
@@ -407,7 +408,7 @@ async def breaker_state():
     return {"breaker": breaker.snapshot()}
 
 
-@router.post("/health/breaker/reset")
+@router.post("/health/breaker/reset", dependencies=[Depends(require_admin)])
 async def breaker_reset(provider: Optional[str] = None):
     """Manually close the breaker for one provider (or all if omitted).
     Useful after fixing a credential / model ID without waiting for cooldown."""
@@ -434,7 +435,7 @@ async def list_providers():
     return {"providers": providers, "default": config.default_provider}
 
 
-@router.post("/batch-chat")
+@router.post("/batch-chat", dependencies=[Depends(require_admin)])
 async def batch_chat(request: BatchChatRequest):
     """
     Send chat requests to multiple AI providers simultaneously.

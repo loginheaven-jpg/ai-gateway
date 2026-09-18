@@ -40,10 +40,7 @@ def _get_pg_connection():
     """Get PostgreSQL connection"""
     import psycopg2
     try:
-        print(f"[CONFIG] Connecting to PostgreSQL...")
-        conn = psycopg2.connect(DATABASE_URL)
-        print(f"[CONFIG] PostgreSQL connection successful")
-        return conn
+        return psycopg2.connect(DATABASE_URL)
     except Exception as e:
         print(f"[CONFIG] PostgreSQL connection failed: {type(e).__name__}: {e}")
         raise

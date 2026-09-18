@@ -1,6 +1,9 @@
 import httpx
+import logging
 from typing import List, Dict, Any, Optional
 from .base import AIService
+
+logger = logging.getLogger(__name__)
 
 
 class PerplexityService(AIService):
@@ -45,29 +48,27 @@ class PerplexityService(AIService):
             response.raise_for_status()
             data = response.json()
 
-        # 전체 응답 디버그 로깅
-        import logging
-        import json
-        logging.warning(f"[Perplexity] TOP-LEVEL KEYS: {list(data.keys())}")
+        # 응답 구조 디버그 로깅 (DEBUG 수준 — 운영 INFO 에서는 찍히지 않음)
+        logger.debug(f"[Perplexity] TOP-LEVEL KEYS: {list(data.keys())}")
         if "choices" in data and data["choices"]:
             choice = data["choices"][0]
-            logging.warning(f"[Perplexity] CHOICE KEYS: {list(choice.keys())}")
+            logger.debug(f"[Perplexity] CHOICE KEYS: {list(choice.keys())}")
             if "message" in choice:
-                logging.warning(f"[Perplexity] MESSAGE KEYS: {list(choice['message'].keys())}")
+                logger.debug(f"[Perplexity] MESSAGE KEYS: {list(choice['message'].keys())}")
 
         # citations 추출 - Perplexity API는 citations를 최상위 레벨에 반환
         citations = data.get("citations", [])
-        logging.warning(f"[Perplexity] Top-level citations: {citations[:3] if citations else 'EMPTY'}")
+        logger.debug(f"[Perplexity] Top-level citations: {citations[:3] if citations else 'EMPTY'}")
 
         # 대체 위치들도 확인
         if not citations:
             citations = data.get("choices", [{}])[0].get("citations", [])
-            logging.warning(f"[Perplexity] choices[0].citations: {citations[:3] if citations else 'EMPTY'}")
+            logger.debug(f"[Perplexity] choices[0].citations: {citations[:3] if citations else 'EMPTY'}")
         if not citations:
             citations = data.get("choices", [{}])[0].get("message", {}).get("citations", [])
-            logging.warning(f"[Perplexity] message.citations: {citations[:3] if citations else 'EMPTY'}")
+            logger.debug(f"[Perplexity] message.citations: {citations[:3] if citations else 'EMPTY'}")
 
-        logging.warning(f"[Perplexity] FINAL citations count: {len(citations)}")
+        logger.debug(f"[Perplexity] FINAL citations count: {len(citations)}")
 
         return {
             "content": data["choices"][0]["message"]["content"],

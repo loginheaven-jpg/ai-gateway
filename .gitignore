@@ -47,3 +47,11 @@ Thumbs.db
 # Config data (sensitive)
 app/data/ai-config.json
 app/data/config.db
+
+# Admin export / backups (contain provider API keys)
+ai-gateway-config*.json
+*.zip
+app/data/
+# Local test artifacts
+test_*.jpg
+test_*.png

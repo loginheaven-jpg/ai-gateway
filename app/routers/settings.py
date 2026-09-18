@@ -1,12 +1,17 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional
 
 from ..config import load_config, save_config, update_provider, reset_providers, ProviderConfig, AIConfig
 from ..usage import get_usage_stats, get_recent_logs
 from ..cache import response_cache
+from ..auth import require_admin
 
-router = APIRouter(prefix="/api/settings", tags=["Settings"])
+router = APIRouter(
+    prefix="/api/settings",
+    tags=["Settings"],
+    dependencies=[Depends(require_admin)],
+)
 
 
 class ProviderUpdateRequest(BaseModel):
@@ -305,7 +310,7 @@ async def usage_stats(days: int = 7, provider: Optional[str] = None):
 
 
 @router.get("/usage/logs")
-async def usage_logs(limit: int = 50):
+async def usage_logs(limit: int = Query(50, ge=1, le=500)):
     """Get recent usage log entries."""
     try:
         return {"logs": get_recent_logs(limit=limit)}

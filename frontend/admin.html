@@ -509,6 +509,35 @@
         const API_BASE = window.location.origin;
         let editModal;
 
+        // Admin token: asked once per browser session, attached to every same-origin
+        // request as X-Admin-Token. A 401 clears it and asks again on the next call.
+        const ADMIN_TOKEN_KEY = 'gatewayAdminToken';
+        let tokenPromptDeclined = false;  // cancelled once: stop asking until reload
+        function getAdminToken() {
+            let token = null;
+            try { token = sessionStorage.getItem(ADMIN_TOKEN_KEY); } catch (e) {}
+            if (!token && !tokenPromptDeclined) {
+                token = window.prompt('관리자 토큰(GATEWAY_ADMIN_TOKEN)을 입력하세요') || '';
+                if (!token) tokenPromptDeclined = true;
+                try { if (token) sessionStorage.setItem(ADMIN_TOKEN_KEY, token); } catch (e) {}
+            }
+            return token || '';
+        }
+        const _nativeFetch = window.fetch.bind(window);
+        window.fetch = async (input, init = {}) => {
+            const url = typeof input === 'string' ? input : input.url;
+            if (!url.startsWith(API_BASE) && !url.startsWith('/')) {
+                return _nativeFetch(input, init);
+            }
+            const headers = new Headers(init.headers || {});
+            headers.set('X-Admin-Token', getAdminToken());
+            const response = await _nativeFetch(input, { ...init, headers });
+            if (response.status === 401) {
+                try { sessionStorage.removeItem(ADMIN_TOKEN_KEY); } catch (e) {}
+            }
+            return response;
+        };
+
         // AI Provider Documentation Links
         const PROVIDER_DOCS = {
             'claude-sonnet': 'https://docs.anthropic.com/en/docs/about-claude/models',

@@ -112,8 +112,6 @@ class GeminiService(AIService):
             raise Exception(f"Gemini API error: {error_msg}")
 
         # Extract response with detailed logging
-        logger.info(f"[GEMINI] Response type: {type(response)}")
-        logger.info(f"[GEMINI] Response attributes: {dir(response)}")
 
         content_text = None
 
@@ -128,8 +126,6 @@ class GeminiService(AIService):
         # Method 2: Try candidates[0].content.parts[0].text
         if not content_text and response.candidates:
             candidate = response.candidates[0]
-            logger.info(f"[GEMINI] Candidate type: {type(candidate)}")
-            logger.info(f"[GEMINI] Candidate attributes: {dir(candidate)}")
 
             if hasattr(candidate, 'content') and candidate.content:
                 logger.info(f"[GEMINI] Content type: {type(candidate.content)}")
@@ -137,7 +133,6 @@ class GeminiService(AIService):
                     logger.info(f"[GEMINI] Parts count: {len(candidate.content.parts)}")
                     parts_text = []
                     for i, part in enumerate(candidate.content.parts):
-                        logger.info(f"[GEMINI] Part {i} type: {type(part)}, attrs: {dir(part)}")
                         if hasattr(part, 'text') and part.text:
                             parts_text.append(part.text)
                             logger.info(f"[GEMINI] Part {i} text length: {len(part.text)}")
