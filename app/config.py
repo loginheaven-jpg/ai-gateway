@@ -4,9 +4,9 @@ import socket
 import threading
 import time
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 from urllib.parse import urlparse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Database configuration
 # Priority: DATABASE_URL (PostgreSQL) > SQLite file
@@ -33,6 +33,10 @@ class ProviderConfig(BaseModel):
     base_url: str
     enabled: bool = True
     service_type: str = "chat"  # "chat" or "stt"
+    # Per-alias default call options, overriding the recommended defaults in
+    # model_options.ALIAS_DEFAULTS: {"reasoning": "off|low|medium|high",
+    # "fallback_model": "<same-family model>", "fallback_after_s": 6}
+    options: Dict[str, Any] = Field(default_factory=dict)
 
 
 class AIConfig(BaseModel):
@@ -93,12 +97,17 @@ def init_db():
             )
         ''')
         # Add service_type column if missing (older schemas)
+        # Add columns missing from older schemas (additive only)
         if USE_POSTGRES:
             cursor.execute("ALTER TABLE providers ADD COLUMN IF NOT EXISTS service_type TEXT DEFAULT 'chat'")
+            cursor.execute("ALTER TABLE providers ADD COLUMN IF NOT EXISTS options TEXT")
         else:
             cursor.execute("PRAGMA table_info(providers)")
-            if "service_type" not in {row[1] for row in cursor.fetchall()}:
+            cols = {row[1] for row in cursor.fetchall()}
+            if "service_type" not in cols:
                 cursor.execute("ALTER TABLE providers ADD COLUMN service_type TEXT DEFAULT 'chat'")
+            if "options" not in cols:
+                cursor.execute("ALTER TABLE providers ADD COLUMN options TEXT")
         conn.commit()
     finally:
         conn.close()
@@ -148,7 +157,7 @@ def _get_default_providers():
         "claude-sonnet": ProviderConfig(
             name="Claude Sonnet (Anthropic)",
             api_key=os.getenv("ANTHROPIC_API_KEY", ""),
-            model=os.getenv("CLAUDE_SONNET_MODEL", "claude-sonnet-4-6"),
+            model=os.getenv("CLAUDE_SONNET_MODEL", "claude-sonnet-5"),
             base_url="https://api.anthropic.com/v1",
             enabled=True
         ),
@@ -162,7 +171,7 @@ def _get_default_providers():
         "chatgpt": ProviderConfig(
             name="ChatGPT (OpenAI)",
             api_key=os.getenv("OPENAI_API_KEY", ""),
-            model=os.getenv("OPENAI_MODEL", "gpt-5.1"),
+            model=os.getenv("OPENAI_MODEL", "gpt-5.6-terra"),
             base_url="https://api.openai.com/v1",
             enabled=True
         ),
@@ -176,7 +185,7 @@ def _get_default_providers():
         "gemini-flash": ProviderConfig(
             name="Gemini (Flash)",
             api_key=os.getenv("GOOGLE_API_KEY", ""),
-            model=os.getenv("GEMINI_FLASH_MODEL", "gemini-flash-latest"),
+            model=os.getenv("GEMINI_FLASH_MODEL", "gemini-3.8-flash"),
             base_url="https://generativelanguage.googleapis.com/v1beta",
             enabled=True
         ),
@@ -249,7 +258,7 @@ def _load_from_db() -> Optional[AIConfig]:
         if cursor.fetchone()[0] == 0:
             return None
 
-        cursor.execute("SELECT id, name, api_key, model, base_url, enabled, service_type FROM providers")
+        cursor.execute("SELECT id, name, api_key, model, base_url, enabled, service_type, options FROM providers")
         providers = {}
         for row in cursor.fetchall():
             providers[row[0]] = ProviderConfig(
@@ -258,7 +267,8 @@ def _load_from_db() -> Optional[AIConfig]:
                 model=row[3],
                 base_url=row[4],
                 enabled=bool(row[5]),
-                service_type=row[6] or "chat"
+                service_type=row[6] or "chat",
+                options=_parse_options(row[7]),
             )
 
         cursor.execute("SELECT value FROM settings WHERE key = 'default_provider'")
@@ -268,6 +278,16 @@ def _load_from_db() -> Optional[AIConfig]:
         return AIConfig(providers=providers, default_provider=default_provider)
     finally:
         conn.close()
+
+
+def _parse_options(raw) -> Dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+        return value if isinstance(value, dict) else {}
+    except (TypeError, ValueError):
+        return {}
 
 
 def _load_settings_from_db() -> Dict[str, str]:
@@ -289,18 +309,13 @@ def _save_to_db(config: AIConfig):
         # Clear and insert providers
         cursor.execute("DELETE FROM providers")
         for provider_id, provider in config.providers.items():
-            if USE_POSTGRES:
-                cursor.execute('''
-                    INSERT INTO providers (id, name, api_key, model, base_url, enabled, service_type)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ''', (provider_id, provider.name, provider.api_key, provider.model,
-                      provider.base_url, 1 if provider.enabled else 0, provider.service_type))
-            else:
-                cursor.execute('''
-                    INSERT INTO providers (id, name, api_key, model, base_url, enabled, service_type)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (provider_id, provider.name, provider.api_key, provider.model,
-                      provider.base_url, 1 if provider.enabled else 0, provider.service_type))
+            ph = "%s" if USE_POSTGRES else "?"
+            cursor.execute(f'''
+                INSERT INTO providers (id, name, api_key, model, base_url, enabled, service_type, options)
+                VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
+            ''', (provider_id, provider.name, provider.api_key, provider.model,
+                  provider.base_url, 1 if provider.enabled else 0, provider.service_type,
+                  json.dumps(provider.options, ensure_ascii=False) if provider.options else None))
 
         _upsert_setting(cursor, "default_provider", config.default_provider)
         conn.commit()
@@ -357,6 +372,50 @@ _config_source = "unloaded"   # "db" | "env_fallback" | "unloaded"
 _retry_thread: Optional[threading.Thread] = None
 
 
+# Known-retired model IDs per alias -> replacement.
+RETIRED_MODELS = {
+    "gemini-pro":   ({"gemini-3-pro-preview", "gemini-3.1-pro"}, "gemini-pro-latest"),
+    "gemini-flash": ({"gemini-2.5-flash"},                       "gemini-flash-latest"),
+    "claude-haiku": ({"claude-haiku-4-6"},                       "claude-haiku-4-5-20251001"),
+    # Retired image models (OpenAI DALL-E 2/3; Imagen 3 removed from the Gemini API)
+    "dall-e":       ({"dall-e-3", "dall-e-2", "gpt-image-1"},    "gpt-image-2.5-flare"),
+    "imagen":       ({"imagen-3.0-generate-002", "imagen-3.0-generate-001"}, "gemini-3.1-flash-image"),
+}
+# Display names that described the retired model; replaced only if unchanged
+RENAMED = {
+    "dall-e": ("DALL-E 3 (OpenAI)", "GPT Image (OpenAI)"),
+    "imagen": ("Imagen 3 (Google)", "Gemini Image (Google)"),
+}
+_RETIRED_BY_ID = {bad: good for bad_ids, good in RETIRED_MODELS.values() for bad in bad_ids}
+
+
+def heal_model_id(model: str) -> str:
+    """Replacement for a known-retired model ID (used for request-level models)."""
+    return _RETIRED_BY_ID.get(model, model)
+
+
+# Recommended models (2026-09-19 benchmark), applied ONCE to existing configs:
+# exact matches of the previous defaults only, recorded by a settings marker so
+# a later manual change back is never overwritten.
+MODEL_DEFAULTS_VERSION = "2026-09-19"
+MODEL_UPGRADES = {
+    "gemini-flash":  ({"gemini-flash-latest", "gemini-3.5-flash"}, "gemini-3.8-flash"),
+    "chatgpt":       ({"gpt-5.1", "gpt-5"}, "gpt-5.6-terra"),
+    "openai":        ({"gpt-5.5", "gpt-5.4", "gpt-5.1", "gpt-5"}, "gpt-5.6-terra"),
+    "claude-sonnet": ({"claude-sonnet-4-6", "claude-sonnet-4-5", "claude-sonnet-4-5-20250929"}, "claude-sonnet-5"),
+}
+
+
+def _apply_model_upgrades(config: AIConfig) -> list:
+    upgraded = []
+    for pid, (old_ids, new) in MODEL_UPGRADES.items():
+        p = config.providers.get(pid)
+        if p and p.model in old_ids:
+            upgraded.append(f"{pid}:{p.model}->{new}")
+            config.providers[pid] = p.model_copy(update={"model": new})
+    return upgraded
+
+
 def _migrate(config: AIConfig) -> bool:
     """Startup-time fixups. Returns True if the DB copy needs saving."""
     changed = False
@@ -377,21 +436,7 @@ def _migrate(config: AIConfig) -> bool:
             update={"name": "ChatGPT (OpenAI)"}
         )
 
-    # Auto-heal known-retired model IDs that caused the 2026-06-13 outage.
-    # Only rewrites exact matches; custom user-set models are untouched.
-    RETIRED_MODELS = {
-        "gemini-pro":   ({"gemini-3-pro-preview", "gemini-3.1-pro"}, "gemini-pro-latest"),
-        "gemini-flash": ({"gemini-2.5-flash"},                       "gemini-flash-latest"),
-        "claude-haiku": ({"claude-haiku-4-6"},                       "claude-haiku-4-5-20251001"),
-        # Retired image models (OpenAI DALL-E 2/3; Imagen 3 removed from the Gemini API)
-        "dall-e":       ({"dall-e-3", "dall-e-2", "gpt-image-1"},    "gpt-image-2.5-flare"),
-        "imagen":       ({"imagen-3.0-generate-002", "imagen-3.0-generate-001"}, "gemini-3.1-flash-image"),
-    }
-    # Display names that described the retired model; replaced only if unchanged
-    RENAMED = {
-        "dall-e": ("DALL-E 3 (OpenAI)", "GPT Image (OpenAI)"),
-        "imagen": ("Imagen 3 (Google)", "Gemini Image (Google)"),
-    }
+    # Auto-heal known-retired model IDs (exact matches only; custom models untouched)
     healed = []
     for pid, (bad_ids, good) in RETIRED_MODELS.items():
         p = config.providers.get(pid)
@@ -426,6 +471,18 @@ def _bootstrap_from_db() -> AIConfig:
         _save_to_db(config)
 
     settings = _load_settings_from_db()
+    if settings.get("model_defaults_version") != MODEL_DEFAULTS_VERSION:
+        upgraded = _apply_model_upgrades(config)
+        if upgraded:
+            _save_to_db(config)
+            print(f"[CONFIG] Applied recommended models ({MODEL_DEFAULTS_VERSION}): {upgraded}")
+        conn = _connect()
+        try:
+            _upsert_setting(conn.cursor(), "model_defaults_version", MODEL_DEFAULTS_VERSION)
+            conn.commit()
+        finally:
+            conn.close()
+        settings["model_defaults_version"] = MODEL_DEFAULTS_VERSION
     _swap(config, settings, "db")
     return config
 

@@ -15,6 +15,37 @@ logger = logging.getLogger(__name__)
 # deadline so the gateway's own timeout (504 / fallback) fires first.
 _SDK_TIMEOUT_MS = int((float(os.getenv("AI_PROVIDER_DEADLINE_S", "15")) + 5) * 1000)
 
+# Thinking control differs per model (verified against the API, 2026-09-19):
+# 3.x Flash: thinking_budget=0 disables, "minimal" is rejected; Flash-Lite:
+# thinks minimally by default, budget 0 is rejected; Pro: cannot disable.
+_BUDGET_25 = {"low": 1024, "medium": 4096, "high": 16384}
+_FINISH = {"STOP": "stop", "MAX_TOKENS": "length", "SAFETY": "safety", "RECITATION": "recitation"}
+
+
+def _thinking_config(model: str, reasoning: Optional[str]):
+    """(thinking config kwargs or None, applied reasoning)."""
+    if reasoning is None:
+        return None, None
+    if "flash-lite" in model:
+        return {"thinking_level": "minimal" if reasoning == "off" else reasoning}, reasoning
+    if model.startswith("gemini-2.5"):
+        if reasoning == "off":
+            if "pro" in model:
+                return {"thinking_budget": 128}, "low"
+            return {"thinking_budget": 0}, "off"
+        return {"thinking_budget": _BUDGET_25[reasoning]}, reasoning
+    if "pro" in model:
+        level = "low" if reasoning == "off" else reasoning
+        return {"thinking_level": level}, level
+    if reasoning == "off":
+        return {"thinking_budget": 0}, "off"
+    return {"thinking_level": reasoning}, reasoning
+
+
+def _finish(fr) -> str:
+    name = getattr(fr, "name", None) or str(fr or "UNKNOWN").split(".")[-1]
+    return _FINISH.get(name, name.lower())
+
 
 class GeminiService(AIService):
     """Gemini (Google) AI Service - Using new google-genai SDK"""
@@ -29,9 +60,11 @@ class GeminiService(AIService):
         messages: List[Dict[str, Any]],
         system_prompt: Optional[str] = None,
         max_tokens: int = 4096,
-        temperature: float = 0.7
+        temperature: Optional[float] = 0.7,
+        reasoning: Optional[str] = None,
     ) -> Dict[str, Any]:
-        logger.info(f"[GEMINI] Model: {self.model}, Max tokens: {max_tokens}")
+        thinking, applied_reasoning = _thinking_config(self.model, reasoning)
+        logger.info(f"[GEMINI] Model: {self.model}, Max tokens: {max_tokens}, reasoning: {applied_reasoning}")
         logger.info(f"[GEMINI] Messages: {len(messages)}, System prompt: {len(system_prompt) if system_prompt else 0} chars")
 
         # Build contents for the API
@@ -82,8 +115,7 @@ class GeminiService(AIService):
                 contents.append(types.Content(role=role, parts=parts))
 
         # Generation config
-        generation_config = types.GenerateContentConfig(
-            temperature=temperature,
+        config_kwargs = dict(
             max_output_tokens=max_tokens,
             safety_settings=[
                 types.SafetySetting(
@@ -104,14 +136,32 @@ class GeminiService(AIService):
                 ),
             ]
         )
+        if temperature is not None:
+            config_kwargs["temperature"] = temperature
+        if thinking:
+            config_kwargs["thinking_config"] = types.ThinkingConfig(**thinking)
 
         logger.info(f"[GEMINI] Calling API...")
         try:
-            response = await self.client.aio.models.generate_content(
-                model=self.model,
-                contents=contents,
-                config=generation_config
-            )
+            try:
+                response = await self.client.aio.models.generate_content(
+                    model=self.model,
+                    contents=contents,
+                    config=types.GenerateContentConfig(**config_kwargs)
+                )
+            except Exception as e:
+                # Safety net for models not covered above: drop a rejected thinking option once
+                msg = str(e)
+                if not thinking or "INVALID_ARGUMENT" not in msg or not ("hinking" in msg or "udget" in msg):
+                    raise
+                logger.warning(f"[GEMINI] {self.model} rejected {thinking}; retrying without it")
+                config_kwargs.pop("thinking_config")
+                applied_reasoning = None
+                response = await self.client.aio.models.generate_content(
+                    model=self.model,
+                    contents=contents,
+                    config=types.GenerateContentConfig(**config_kwargs)
+                )
         except Exception as e:
             error_msg = str(e)
             logger.error(f"[GEMINI ERROR] {type(e).__name__}: {error_msg}")
@@ -184,7 +234,9 @@ class GeminiService(AIService):
         return {
             "content": content_text,
             "model": self.model,
-            "finish_reason": finish_reason,
+            "finish_reason": _finish(response.candidates[0].finish_reason) if response.candidates else "unknown",
+            "applied_reasoning": applied_reasoning,
+            "applied_temperature": config_kwargs.get("temperature"),
             "usage": {
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens

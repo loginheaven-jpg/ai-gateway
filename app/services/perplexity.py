@@ -15,7 +15,8 @@ class PerplexityService(AIService):
         messages: List[Dict[str, Any]],
         system_prompt: Optional[str] = None,
         max_tokens: int = 4096,
-        temperature: float = 0.7
+        temperature: Optional[float] = 0.7,
+        reasoning: Optional[str] = None,  # not applicable
     ) -> Dict[str, Any]:
         # Perplexity does not support vision/image content
         for msg in messages:
@@ -36,9 +37,10 @@ class PerplexityService(AIService):
         payload = {
             "model": self.model,
             "max_tokens": max_tokens,
-            "temperature": temperature,
             "messages": all_messages
         }
+        if temperature is not None:
+            payload["temperature"] = temperature
 
         response = await get_http_client().post(
             f"{self.base_url}/chat/completions",
@@ -79,5 +81,7 @@ class PerplexityService(AIService):
                 "output_tokens": data["usage"].get("completion_tokens", 0)
             },
             "provider": "perplexity",
-            "citations": citations
+            "citations": citations,
+            "finish_reason": data["choices"][0].get("finish_reason"),
+            "applied_temperature": payload.get("temperature"),
         }

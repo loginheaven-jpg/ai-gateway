@@ -16,7 +16,8 @@ class AIService(ABC):
         messages: List[Dict[str, Any]],
         system_prompt: Optional[str] = None,
         max_tokens: int = 4096,
-        temperature: float = 0.7
+        temperature: Optional[float] = 0.7,
+        reasoning: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Send a chat request to the AI provider.
@@ -25,7 +26,8 @@ class AIService(ABC):
             messages: List of message dicts with 'role' and 'content'
             system_prompt: Optional system prompt
             max_tokens: Maximum tokens in response
-            temperature: Sampling temperature
+            temperature: Sampling temperature (None: don't send)
+            reasoning: 'off' | 'low' | 'medium' | 'high' | None (provider default)
 
         Returns:
             Dict with 'content', 'model', 'usage' keys
@@ -37,12 +39,13 @@ class AIService(ABC):
         messages: List[Dict[str, Any]],
         system_prompt: Optional[str] = None,
         max_tokens: int = 4096,
-        temperature: float = 0.7
+        temperature: Optional[float] = 0.7,
+        reasoning: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
         """
         Stream a chat response from the AI provider via SSE.
         Yields JSON strings for each chunk.
         Default implementation falls back to non-streaming chat.
         """
-        result = await self.chat(messages, system_prompt, max_tokens, temperature)
+        result = await self.chat(messages, system_prompt, max_tokens, temperature, reasoning)
         yield result["content"]

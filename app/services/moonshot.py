@@ -12,7 +12,8 @@ class MoonshotService(AIService):
         messages: List[Dict[str, Any]],
         system_prompt: Optional[str] = None,
         max_tokens: int = 4096,
-        temperature: float = 0.7
+        temperature: Optional[float] = 0.7,
+        reasoning: Optional[str] = None,  # not applicable
     ) -> Dict[str, Any]:
         # Moonshot does not support vision/image content
         for msg in messages:
@@ -33,9 +34,10 @@ class MoonshotService(AIService):
         payload = {
             "model": self.model,
             "max_tokens": max_tokens,
-            "temperature": temperature,
             "messages": all_messages
         }
+        if temperature is not None:
+            payload["temperature"] = temperature
 
         response = await get_http_client().post(
             f"{self.base_url}/chat/completions",
@@ -53,5 +55,7 @@ class MoonshotService(AIService):
                 "input_tokens": data["usage"]["prompt_tokens"],
                 "output_tokens": data["usage"]["completion_tokens"]
             },
-            "provider": "moonshot"
+            "provider": "moonshot",
+            "finish_reason": data["choices"][0].get("finish_reason"),
+            "applied_temperature": payload.get("temperature"),
         }

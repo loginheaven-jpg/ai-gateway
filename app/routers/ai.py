@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Literal
 import asyncio
 import json
 import os
@@ -14,6 +14,7 @@ from ..usage import log_usage
 from ..cache import response_cache
 from ..circuit_breaker import breaker
 from ..auth import require_admin
+from ..model_options import plan_call, CallPlan, ModelFamilyMismatch, effective_options
 from ..services import (
     ClaudeService,
     ChatGPTService,
@@ -87,15 +88,23 @@ def _has_image_content(messages: List[Dict[str, Any]]) -> bool:
     return False
 
 
+class ChatOptions(BaseModel):
+    # Portable reasoning / thinking level, translated per provider.
+    # Omitted: the alias default (admin setting, else the recommended default).
+    reasoning: Optional[Literal["off", "low", "medium", "high"]] = None
+
+
 class ChatRequest(BaseModel):
     provider: Optional[str] = None  # If None, use default
     messages: List[Dict[str, Any]]
     system_prompt: Optional[str] = None
     max_tokens: int = 4096
-    temperature: float = 0.7
+    temperature: Optional[float] = 0.7  # null: don't send; dropped where the model rejects it
     use_fallback: bool = True       # Enable automatic fallback on failure
     use_cache: bool = True          # Enable response caching
     caller: Optional[str] = None    # Caller identifier for usage tracking
+    model: Optional[str] = None     # Optional model of the provider's own vendor (primary provider only)
+    options: Optional[ChatOptions] = None
 
 
 class BatchChatRequest(BaseModel):
@@ -111,13 +120,17 @@ class ChatResponse(BaseModel):
     provider: str
     usage: Dict[str, int]
     citations: Optional[List[str]] = None  # Perplexity citations
+    finish_reason: Optional[str] = None    # "stop" | "length" | provider-specific
+    applied: Optional[Dict[str, Any]] = None  # model / options actually used
+
 
     class Config:
         extra = "ignore"  # Ignore extra fields from AI services
 
 
-def get_ai_service(provider_id: str):
-    """Factory function to get the appropriate AI service"""
+def get_ai_service(provider_id: str, model: Optional[str] = None):
+    """Factory function to get the appropriate AI service (optionally for a
+    specific model of the same vendor)."""
     provider = get_provider(provider_id)
 
     if not provider:
@@ -146,52 +159,96 @@ def get_ai_service(provider_id: str):
 
     return service_class(
         api_key=provider.api_key,
-        model=provider.model,
+        model=model or provider.model,
         base_url=provider.base_url
     )
 
 
-async def _try_provider(
-    provider_id: str, request: ChatRequest, deadline_s: float
-) -> Dict[str, Any]:
-    """Try a single provider with a hard deadline. Raises on failure or timeout."""
-    service = get_ai_service(provider_id)
-    start_time = time.time()
+def _plan(provider_id: str, request: "ChatRequest", is_primary: bool) -> CallPlan:
+    """Model and options for this provider. The request's model applies to the
+    primary provider only; fallback providers use their own defaults plus the
+    request's portable options."""
+    provider = get_provider(provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail=f"Provider not found: {provider_id}")
+    reasoning = request.options.reasoning if request.options else None
     try:
-        result = await asyncio.wait_for(
-            service.chat(
-                messages=request.messages,
-                system_prompt=request.system_prompt,
-                max_tokens=request.max_tokens,
-                temperature=request.temperature,
-            ),
-            timeout=deadline_s,
-        )
-        elapsed_ms = int((time.time() - start_time) * 1000)
+        return plan_call(provider_id, provider, request.model if is_primary else None, reasoning)
+    except ModelFamilyMismatch as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-        # Log successful usage
-        log_usage(
-            provider=provider_id,
-            model=result.get("model", ""),
-            input_tokens=result.get("usage", {}).get("input_tokens", 0),
-            output_tokens=result.get("usage", {}).get("output_tokens", 0),
-            elapsed_ms=elapsed_ms,
-            success=True,
-            caller=request.caller
-        )
 
-        return result
-    except Exception as e:
-        elapsed_ms = int((time.time() - start_time) * 1000)
-        log_usage(
-            provider=provider_id,
-            model="",
-            elapsed_ms=elapsed_ms,
-            success=False,
-            error_message=str(e)[:500],
-            caller=request.caller
-        )
-        raise
+def _cache_scope(provider_id: str, request: "ChatRequest") -> str:
+    """Cache namespace: alias + the model/options that would answer."""
+    try:
+        plan = _plan(provider_id, request, True)
+        return f"{provider_id}|{plan.model}|{plan.reasoning}|{plan.fallback_model}"
+    except HTTPException:
+        return provider_id
+
+
+async def _try_provider(
+    provider_id: str, request: ChatRequest, deadline_s: float, is_primary: bool = True
+) -> Dict[str, Any]:
+    """Try one provider within a hard deadline. If the alias has a same-family
+    fallback model (e.g. gemini-3.8-flash -> gemini-3.5-flash-lite), the first
+    model gets `fallback_after_s` and the fallback model the rest. Same vendor,
+    so it also applies when use_fallback is false. Raises on failure."""
+    plan = _plan(provider_id, request, is_primary)
+    attempts = [plan.model] + ([plan.fallback_model] if plan.fallback_model else [])
+    chain_start = time.time()
+    for i, model in enumerate(attempts):
+        service = get_ai_service(provider_id, model)
+        remaining = deadline_s - (time.time() - chain_start)
+        timeout = min(plan.fallback_after_s, remaining) if (i == 0 and plan.fallback_model) else remaining
+        start_time = time.time()
+        try:
+            result = await asyncio.wait_for(
+                service.chat(
+                    messages=request.messages,
+                    system_prompt=request.system_prompt,
+                    max_tokens=request.max_tokens,
+                    temperature=request.temperature,
+                    reasoning=plan.reasoning,
+                ),
+                timeout=timeout,
+            )
+            elapsed_ms = int((time.time() - start_time) * 1000)
+
+            # Log successful usage
+            log_usage(
+                provider=provider_id,
+                model=result.get("model", ""),
+                input_tokens=result.get("usage", {}).get("input_tokens", 0),
+                output_tokens=result.get("usage", {}).get("output_tokens", 0),
+                elapsed_ms=elapsed_ms,
+                success=True,
+                caller=request.caller
+            )
+            result["applied"] = {
+                "provider": provider_id,
+                "model": model,
+                "reasoning": result.pop("applied_reasoning", None),
+                "temperature": result.pop("applied_temperature", None),
+                "fallback_from": attempts[0] if i > 0 else None,
+            }
+            return result
+        except Exception as e:
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            reason = "timeout" if isinstance(e, asyncio.TimeoutError) else str(e)
+            log_usage(
+                provider=provider_id,
+                model=model,
+                elapsed_ms=elapsed_ms,
+                success=False,
+                error_message=reason[:500],
+                caller=request.caller
+            )
+            if i + 1 < len(attempts) and deadline_s - (time.time() - chain_start) > 1.0:
+                logger.warning(f"[FALLBACK] {provider_id}: {model} failed ({reason[:80]}), "
+                               f"trying {attempts[i + 1]}")
+                continue
+            raise
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -205,11 +262,17 @@ async def chat(request: ChatRequest):
 
     logger.info(f"[CHAT] Provider: {provider_id}, Messages: {len(request.messages)}")
 
+    # A model of another vendor is a client error: reject before any attempt
+    # (and before it could count against the provider's circuit breaker).
+    if request.model and get_provider(provider_id):
+        _plan(provider_id, request, True)
+
     # Check cache (skip for vision requests - images are too large to cache)
     has_images = _has_image_content(request.messages)
+    cache_scope = _cache_scope(provider_id, request)
     if request.use_cache and not has_images:
         cached = response_cache.get(
-            provider_id, request.messages, request.system_prompt,
+            cache_scope, request.messages, request.system_prompt,
             request.max_tokens, request.temperature
         )
         if cached:
@@ -248,12 +311,12 @@ async def chat(request: ChatRequest):
         attempt_deadline = min(PROVIDER_DEADLINE_S, remaining)
         attempt_start = time.time()
         try:
-            result = await _try_provider(pid, request, attempt_deadline)
+            result = await _try_provider(pid, request, attempt_deadline, is_primary=(pid == provider_id))
             breaker.record_success(pid)
 
             if request.use_cache and not has_images and pid == provider_id:
                 response_cache.set(
-                    provider_id, request.messages, request.system_prompt,
+                    cache_scope, request.messages, request.system_prompt,
                     request.max_tokens, request.temperature, result
                 )
 
@@ -323,7 +386,8 @@ async def chat_stream(request: ChatRequest):
     provider_id = request.provider or load_config().default_provider
 
     try:
-        service = get_ai_service(provider_id)
+        plan = _plan(provider_id, request, True)
+        service = get_ai_service(provider_id, plan.model)
     except HTTPException as e:
         detail = e.detail
 
@@ -337,7 +401,8 @@ async def chat_stream(request: ChatRequest):
                 messages=request.messages,
                 system_prompt=request.system_prompt,
                 max_tokens=request.max_tokens,
-                temperature=request.temperature
+                temperature=request.temperature,
+                reasoning=plan.reasoning,
             ):
                 yield f"data: {json.dumps({'text': chunk})}\n\n"
             yield f"data: {json.dumps({'done': True})}\n\n"
@@ -372,6 +437,7 @@ async def health_providers():
                     messages=[{"role": "user", "content": "ping"}],
                     max_tokens=8,
                     temperature=0.0,
+                    reasoning=effective_options(pid, get_provider(pid)).get("reasoning"),
                 ),
                 timeout=10.0,
             )
@@ -431,7 +497,8 @@ async def list_providers():
             "model": provider.model,
             "enabled": provider.enabled,
             "has_api_key": bool(provider.api_key),
-            "is_default": provider_id == config.default_provider
+            "is_default": provider_id == config.default_provider,
+            "default_options": effective_options(provider_id, provider),
         })
 
     return {"providers": providers, "default": config.default_provider}
@@ -450,7 +517,8 @@ async def batch_chat(request: BatchChatRequest):
             result = await service.chat(
                 messages=[{"role": "user", "content": request.test_message}],
                 max_tokens=request.max_tokens,
-                temperature=request.temperature
+                temperature=request.temperature,
+                reasoning=effective_options(provider_id, get_provider(provider_id)).get("reasoning"),
             )
             elapsed = time.time() - start_time
             return {

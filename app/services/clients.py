@@ -4,6 +4,7 @@ sessions) are kept alive instead of re-established per call.
 All are created lazily inside the running event loop and closed on shutdown.
 Assumes the single uvicorn worker / single event loop the gateway runs on.
 """
+import os
 from typing import Dict, Optional, Tuple
 
 import httpx
@@ -41,8 +42,12 @@ def get_genai_client(api_key: str, timeout_ms: Optional[int] = None) -> genai.Cl
     key = (api_key, timeout_ms)
     client = _genai.get(key)
     if client is None:
-        http_options = {"timeout": timeout_ms} if timeout_ms else None
-        client = genai.Client(api_key=api_key, http_options=http_options)
+        http_options = {}
+        if timeout_ms:
+            http_options["timeout"] = timeout_ms
+        if os.getenv("GEMINI_BASE_URL"):  # tests / proxies only; unset in production
+            http_options["base_url"] = os.environ["GEMINI_BASE_URL"]
+        client = genai.Client(api_key=api_key, http_options=http_options or None)
         _genai[key] = client
     return client
 

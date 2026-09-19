@@ -590,6 +590,14 @@
                     const canTest = provider.enabled && provider.api_key;
 
                     const docsUrl = PROVIDER_DOCS[id] || '#';
+                    // What a call without model/options actually gets (recommended defaults + admin overrides)
+                    const eff = provider.effective_options || {};
+                    const reasoningLabel = { off: '끔', low: '낮음', medium: '보통', high: '높음' };
+                    const autoLines = isChat ? [
+                        `<strong>추론/thinking:</strong> ${eff.reasoning ? reasoningLabel[eff.reasoning] + ' (' + eff.reasoning + ')' : '모델 기본값'}`,
+                        eff.fallback_model ? `<strong>대체:</strong> ${eff.fallback_after_s || 6}초 안에 답이 없으면 ${eff.fallback_model}` : '',
+                        (provider.options && Object.keys(provider.options).length) ? '<span class="badge bg-secondary">관리자 지정</span>' : '<span class="badge bg-light text-dark">권장 기본값</span>',
+                    ].filter(Boolean).join('<br>') : '';
                     const cardHtml = `
                         <div class="col-md-6 col-lg-4">
                             <div class="card provider-card ${cardClass}">
@@ -603,6 +611,7 @@
                                     </div>
                                     <p class="card-text small text-muted mb-2">
                                         <strong>Model:</strong> ${provider.model}<br>
+                                        ${autoLines ? autoLines + '<br>' : ''}
                                         <strong>API Key:</strong> ${provider.api_key || '<span class="text-danger">Not set</span>'}<br>
                                         <strong>Status:</strong> ${provider.enabled ? '<span class="text-success">Enabled</span>' : '<span class="text-danger">Disabled</span>'}
                                     </p>

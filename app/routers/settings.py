@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import asyncio
 import os
@@ -12,6 +12,7 @@ from ..config import (
 from ..usage import get_usage_stats, get_recent_logs
 from ..cache import response_cache
 from ..auth import require_admin
+from ..model_options import effective_options, REASONING_LEVELS
 
 router = APIRouter(
     prefix="/api/settings",
@@ -24,6 +25,9 @@ class ProviderUpdateRequest(BaseModel):
     api_key: Optional[str] = None
     model: Optional[str] = None
     enabled: Optional[bool] = None
+    # Default call options for this alias; {} clears them (back to recommended):
+    # {"reasoning": "off|low|medium|high", "fallback_model": "...", "fallback_after_s": 6}
+    options: Optional[Dict[str, Any]] = None
 
 
 class DefaultProviderRequest(BaseModel):
@@ -43,7 +47,9 @@ async def get_all_providers():
             "model": provider.model,
             "base_url": provider.base_url,
             "enabled": provider.enabled,
-            "service_type": provider.service_type
+            "service_type": provider.service_type,
+            "options": provider.options,
+            "effective_options": effective_options(provider_id, provider) if provider.service_type == "chat" else {},
         }
 
     return {
@@ -67,7 +73,9 @@ async def get_provider(provider_id: str):
         "api_key": mask_api_key(provider.api_key),
         "model": provider.model,
         "base_url": provider.base_url,
-        "enabled": provider.enabled
+        "enabled": provider.enabled,
+        "options": provider.options,
+        "effective_options": effective_options(provider_id, provider) if provider.service_type == "chat" else {},
     }
 
 
@@ -86,6 +94,14 @@ async def update_provider_config(provider_id: str, request: ProviderUpdateReques
         if request.enabled is not None:
             updates["enabled"] = request.enabled
 
+        if request.options is not None:
+            opts = {k: v for k, v in request.options.items() if v is not None}
+            if "reasoning" in opts and opts["reasoning"] not in REASONING_LEVELS:
+                raise HTTPException(status_code=400, detail=f"reasoning must be one of {REASONING_LEVELS}")
+            if "fallback_after_s" in opts and not isinstance(opts["fallback_after_s"], (int, float)):
+                raise HTTPException(status_code=400, detail="fallback_after_s must be a number")
+            updates["options"] = opts
+
         if not updates:
             raise HTTPException(status_code=400, detail="No updates provided")
 
@@ -98,7 +114,9 @@ async def update_provider_config(provider_id: str, request: ProviderUpdateReques
                 "name": updated.name,
                 "api_key": mask_api_key(updated.api_key),
                 "model": updated.model,
-                "enabled": updated.enabled
+                "enabled": updated.enabled,
+                "options": updated.options,
+                "effective_options": effective_options(provider_id, updated),
             }
         }
 
