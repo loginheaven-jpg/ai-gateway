@@ -26,16 +26,21 @@ class WhisperService(STTService):
             audio_file = io.BytesIO(audio_data)
             audio_file.name = filename
 
-            # Use verbose_json to get duration info
+            # whisper-1 reports the duration only with verbose_json; the newer
+            # transcribe models reject verbose_json and report it as usage.seconds.
             response = await client.audio.transcriptions.create(
                 model=self.model,
                 file=audio_file,
                 language=language,
-                response_format="verbose_json"
+                response_format="verbose_json" if self.model.startswith("whisper") else "json",
             )
 
             text = response.text or ""
-            duration_sec = getattr(response, "duration", 0.0) or 0.0
+            duration_sec = getattr(response, "duration", None)
+            if not duration_sec:
+                usage = getattr(response, "usage", None)
+                duration_sec = getattr(usage, "seconds", None) if getattr(usage, "type", None) == "duration" else None
+            duration_sec = duration_sec or 0.0
 
             logger.info(f"[WHISPER] Recognized: {len(text)} chars, Duration: {duration_sec}s")
 

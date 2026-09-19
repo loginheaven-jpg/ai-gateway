@@ -207,7 +207,7 @@ def _get_default_providers():
         "whisper": ProviderConfig(
             name="Whisper (OpenAI)",
             api_key=os.getenv("OPENAI_API_KEY", ""),
-            model="whisper-1",
+            model="gpt-transcribe",
             base_url="https://api.openai.com/v1",
             enabled=True,
             service_type="stt"
@@ -394,25 +394,34 @@ def heal_model_id(model: str) -> str:
     return _RETIRED_BY_ID.get(model, model)
 
 
-# Recommended models (2026-09-19 benchmark), applied ONCE to existing configs:
-# exact matches of the previous defaults only, recorded by a settings marker so
-# a later manual change back is never overwritten.
-MODEL_DEFAULTS_VERSION = "2026-09-19"
-MODEL_UPGRADES = {
-    "gemini-flash":  ({"gemini-flash-latest", "gemini-3.5-flash"}, "gemini-3.8-flash"),
-    "chatgpt":       ({"gpt-5.1", "gpt-5"}, "gpt-5.6-terra"),
-    "openai":        ({"gpt-5.5", "gpt-5.4", "gpt-5.1", "gpt-5"}, "gpt-5.6-terra"),
-    "claude-sonnet": ({"claude-sonnet-4-6", "claude-sonnet-4-5", "claude-sonnet-4-5-20250929"}, "claude-sonnet-5"),
-}
+# Recommended model changes, each version applied ONCE to existing configs
+# (exact matches of the previous values only). The settings marker
+# model_defaults_version records the last applied version, so a later manual
+# change back is never overwritten. Versions sort as strings; append only.
+MODEL_UPGRADE_VERSIONS = [
+    ("2026-09-19", {  # chat benchmark
+        "gemini-flash":  ({"gemini-flash-latest", "gemini-3.5-flash"}, "gemini-3.8-flash"),
+        "chatgpt":       ({"gpt-5.1", "gpt-5"}, "gpt-5.6-terra"),
+        "openai":        ({"gpt-5.5", "gpt-5.4", "gpt-5.1", "gpt-5"}, "gpt-5.6-terra"),
+        "claude-sonnet": ({"claude-sonnet-4-6", "claude-sonnet-4-5", "claude-sonnet-4-5-20250929"}, "claude-sonnet-5"),
+    }),
+    ("2026-09-19b", {  # whisper-1 retires 2027-02-26; gpt-transcribe measured better on Korean
+        "whisper": ({"whisper-1"}, "gpt-transcribe"),
+    }),
+]
+MODEL_DEFAULTS_VERSION = MODEL_UPGRADE_VERSIONS[-1][0]
 
 
-def _apply_model_upgrades(config: AIConfig) -> list:
+def _apply_model_upgrades(config: AIConfig, applied_version: Optional[str]) -> list:
     upgraded = []
-    for pid, (old_ids, new) in MODEL_UPGRADES.items():
-        p = config.providers.get(pid)
-        if p and p.model in old_ids:
-            upgraded.append(f"{pid}:{p.model}->{new}")
-            config.providers[pid] = p.model_copy(update={"model": new})
+    for version, upgrades in MODEL_UPGRADE_VERSIONS:
+        if applied_version and version <= applied_version:
+            continue
+        for pid, (old_ids, new) in upgrades.items():
+            p = config.providers.get(pid)
+            if p and p.model in old_ids:
+                upgraded.append(f"{pid}:{p.model}->{new}")
+                config.providers[pid] = p.model_copy(update={"model": new})
     return upgraded
 
 
@@ -472,7 +481,7 @@ def _bootstrap_from_db() -> AIConfig:
 
     settings = _load_settings_from_db()
     if settings.get("model_defaults_version") != MODEL_DEFAULTS_VERSION:
-        upgraded = _apply_model_upgrades(config)
+        upgraded = _apply_model_upgrades(config, settings.get("model_defaults_version"))
         if upgraded:
             _save_to_db(config)
             print(f"[CONFIG] Applied recommended models ({MODEL_DEFAULTS_VERSION}): {upgraded}")
