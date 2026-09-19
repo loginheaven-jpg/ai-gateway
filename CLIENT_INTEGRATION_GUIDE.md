@@ -40,6 +40,7 @@ Content-Type: application/json
 | `chatgpt` (`openai`는 같은 뜻의 옛 이름) | GPT-5.6 terra | 범용 AI |
 | `gemini-pro` | Gemini Pro (latest) | 고성능 분석, 느림 |
 | `gemini-flash` | Gemini 3.8 Flash | 빠른 응답 |
+| `gemini-lite` | Gemini 3.5 Flash-Lite | 분류·짧은 답(예: 질문 판별). 가장 빠르고 저렴 |
 | `moonshot` | Kimi K2 | 중국어 특화 |
 | `perplexity` | Sonar Pro | 웹 검색 + AI 답변 |
 
@@ -85,7 +86,7 @@ const res = await fetch(`${AI_GATEWAY_URL}/api/ai/chat`, {
   "use_cache": true,                   // (선택) 동일 요청 캐시
   "caller": "saint-record:memo",       // (선택) 호출자 식별 (사용량 추적)
   "model": "claude-sonnet-5",          // (선택) 아래 '모델·옵션 지정' 참고
-  "options": { "reasoning": "off" }    // (선택) 아래 '모델·옵션 지정' 참고
+  "options": { "reasoning": "off", "timeout_s": 60 }  // (선택) 아래 '모델·옵션 지정' 참고
 }
 ```
 
@@ -97,7 +98,10 @@ const res = await fetch(`${AI_GATEWAY_URL}/api/ai/chat`, {
 {
   "provider": "gemini-flash",
   "model": "gemini-3.5-flash-lite",     // (선택) 같은 회사 모델만. 다른 회사 모델이면 400
-  "options": { "reasoning": "off" },    // (선택) off | low | medium | high
+  "options": {
+    "reasoning": "off",                 // (선택) off | low | medium | high
+    "timeout_s": 60                     // (선택) 이 요청의 공급사 호출 1회 상한(초)
+  },
   "temperature": 0,                     // (선택) null 이면 보내지 않음
   "messages": [{ "role": "user", "content": "..." }]
 }
@@ -108,6 +112,21 @@ const res = await fetch(`${AI_GATEWAY_URL}/api/ai/chat`, {
 - 퇴역한 모델 이름을 보내면 후속 모델로 자동으로 바뀝니다.
 - `model`은 1차 provider에만 적용됩니다. 다른 공급사로 폴백하면 그 별칭의 기본값을 쓰고, `options.reasoning`은 이어 받습니다.
 - 모델 이름을 코드에 박으면 모델이 퇴역할 때 앱을 고쳐야 합니다. **기본은 별칭만 쓰고, 꼭 필요할 때만 `model`을 지정**하세요.
+  빠른 분류용 모델이 필요하면 `model` 대신 `provider: "gemini-lite"`를 쓰세요.
+- `model`은 게이트웨이의 **허용 목록**에 있는 모델만 받습니다. 목록에 없으면 공급사를 부르지 않고 400
+  (`... is not in the gateway's allowed list ...`)을 돌려줍니다. 각 별칭에 설정된 모델과 그 같은 계열 대체 모델은 늘 허용됩니다.
+  기본 목록: claude-sonnet-5, claude-haiku-4-5, gpt-5.6-terra / luna / sol, gemini-3.8-flash, gemini-3.5-flash-lite, gemini-pro-latest.
+  목록을 늘리려면 게이트웨이 관리자에게 요청하세요(관리 화면 '요청 모델 허용 목록').
+- 요청에서 고른 `model`이 실패해도 그 별칭의 차단기(연속 실패 시 잠시 건너뛰기)에는 세지 않습니다.
+  한 앱의 모델 선택이 같은 별칭을 쓰는 다른 앱을 막지 않게 하려는 것입니다.
+
+**`options.timeout_s`** (초, 0보다 크고 300 이하)
+
+- 공급사 호출 1회의 상한을 이 요청에 한해 바꿉니다. 지정하지 않으면 서버 기본값(운영 30초)을 씁니다.
+  폴백을 포함한 요청 전체 상한은 `timeout_s`의 2배(서버 기본값보다 작아지지 않음, 최대 600초)입니다.
+- 긴 글 생성처럼 오래 걸리는 것이 정상인 기능에만 쓰세요. 짧게 잡으면 느린 공급사를 일찍 포기하고 폴백합니다.
+- 지정하면 `gemini-flash`의 '6초 뒤 lite로 대체'는 하지 않고, 실패했을 때만 대체합니다(긴 답을 기다린다는 뜻이므로).
+- 호출하는 쪽의 HTTP 타임아웃은 `timeout_s`보다 넉넉하게 잡으세요.
 
 **권장 기본값** (요청에 없을 때. 관리 화면에서 별칭별로 바꿀 수 있고, 카드에 표시됩니다)
 
@@ -117,6 +136,7 @@ const res = await fetch(`${AI_GATEWAY_URL}/api/ai/chat`, {
 | `claude-haiku` | claude-haiku-4-5 | 끔 | – |
 | `chatgpt`, `openai` | gpt-5.6-terra | 끔 | – |
 | `gemini-flash` | gemini-3.8-flash | low | 6초 안에 답이 없으면 gemini-3.5-flash-lite |
+| `gemini-lite` | gemini-3.5-flash-lite | 끔 | – |
 | `gemini-pro` | gemini-pro-latest | 모델 기본값(끌 수 없음) | – |
 
 같은 계열 대체는 같은 회사 모델로만 바꾸므로 `use_fallback: false`여도 적용됩니다(칸 이름이 그대로 맞음).
@@ -144,6 +164,8 @@ const res = await fetch(`${AI_GATEWAY_URL}/api/ai/chat`, {
 }
 ```
 
+(`options.timeout_s`를 보냈으면 `applied.timeout_s`도 들어갑니다.)
+
 - `finish_reason`: `stop`(정상 끝) · `length`(max_tokens에 걸려 잘림) · 그 밖의 공급사 값. **잘림은 이 값으로 판정하세요.**
 - `applied`: 실제로 쓴 별칭·모델·추론·temperature. 같은 계열 대체가 일어나면 `fallback_from`에 원래 모델이 적힙니다.
 - ChatGPT가 빈 답을 내면 실패로 처리해 폴백합니다(`use_fallback: false`면 500).
@@ -159,6 +181,7 @@ const res = await fetch(`${AI_GATEWAY_URL}/api/ai/chat`, {
 | chatgpt / openai | claude-haiku → claude-sonnet → gemini-pro |
 | gemini-pro | claude-haiku → gemini-flash → claude-sonnet → chatgpt |
 | gemini-flash | claude-haiku → gemini-pro → chatgpt |
+| gemini-lite | gemini-flash → claude-haiku → chatgpt |
 | moonshot | claude-haiku → claude-sonnet → chatgpt |
 | perplexity | claude-haiku → claude-sonnet → chatgpt |
 
@@ -492,7 +515,7 @@ Content-Type: multipart/form-data
 
 | 별칭 | 엔진 | 특징 |
 |------|------|------|
-| `whisper` | OpenAI Whisper | 다국어, 최대 25MB **(기본값)** |
+| `whisper` | OpenAI gpt-transcribe (별칭 이름은 그대로) | 다국어, 최대 25MB **(기본값)** |
 | `clova-csr` | Naver CLOVA CSR | 한국어 특화, 최대 60초, 빠름 |
 | `clova-speech` | Naver CLOVA Speech Long | 최대 80분, 화자분리 |
 
@@ -540,7 +563,7 @@ const res = await fetch(`${AI_GATEWAY_URL}/api/ai/stt`, {
   "language": "ko",
   "duration_sec": 12.5,
   "provider": "whisper",
-  "model": "whisper-1",
+  "model": "gpt-transcribe",
   "elapsed_ms": 3200
 }
 ```
@@ -555,7 +578,10 @@ const res = await fetch(`${AI_GATEWAY_URL}/api/ai/stt`, {
 | wav | O | O | O |
 | ogg | O | O | O |
 
-> 브라우저 녹음(webm)은 **Whisper만** 지원합니다.
+> 브라우저 녹음(webm)은 **whisper 별칭만** 지원합니다.
+>
+> 2026-09-19부터 `whisper` 별칭의 모델은 whisper-1 대신 gpt-transcribe입니다(whisper-1은 2027-02-26 퇴역).
+> 한국어 시험에서 더 정확하고 빨랐습니다. 요청·응답 형식은 같고, 응답 `model` 값만 바뀝니다.
 
 ---
 

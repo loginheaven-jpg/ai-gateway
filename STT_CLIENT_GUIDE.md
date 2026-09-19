@@ -80,7 +80,7 @@ curl -X POST https://ai-gateway20251125.up.railway.app/api/ai/stt \
 | 값 | 엔진 | 특징 |
 |---|---|---|
 | (미지정) | Gateway 기본값 | **권장.** Admin에서 설정한 엔진 사용 |
-| `whisper` | OpenAI Whisper | 다국어, 최대 25MB |
+| `whisper` | OpenAI gpt-transcribe (별칭 이름은 그대로, 2026-09-19 whisper-1에서 교체) | 다국어, 최대 25MB |
 | `clova-csr` | Naver CLOVA CSR | 한국어 특화, 최대 60초, 빠름 |
 | `clova-speech` | Naver CLOVA Speech Long | 한국어 특화, 최대 80분, 화자분리 |
 
@@ -94,7 +94,7 @@ curl -X POST https://ai-gateway20251125.up.railway.app/api/ai/stt \
   "language": "ko",
   "duration_sec": 12.5,
   "provider": "whisper",
-  "model": "whisper-1",
+  "model": "gpt-transcribe",
   "elapsed_ms": 3200
 }
 ```

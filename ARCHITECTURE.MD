@@ -55,6 +55,7 @@ ai-gateway/
 | `openai` | GPT (OpenAI) — 옛 별칭, 별도 행 | (DB 설정값) | 기존 앱 호환 |
 | `gemini-pro` | Gemini Pro (Google) | gemini-pro-latest | 고성능 분석 |
 | `gemini-flash` | Gemini Flash (Google) | gemini-3.8-flash (추론 low, 6초 → 3.5-flash-lite 대체) | 빠른 응답 |
+| `gemini-lite` | Gemini (Flash-Lite) | gemini-3.5-flash-lite (추론 끔) | 분류·짧은 답 |
 | `moonshot` | Moonshot (Kimi) | kimi-k2-0905-preview | 중국어 특화 |
 | `perplexity` | Perplexity | sonar-pro | 웹 검색 + AI 답변 |
 
@@ -62,7 +63,7 @@ ai-gateway/
 
 | Provider ID | 이름 | 기본 모델 | 최대 길이 | 용도 |
 |-------------|------|-----------|-----------|------|
-| `whisper` | Whisper (OpenAI) | whisper-1 | 25MB | 범용 음성인식 (다국어) |
+| `whisper` | Whisper (OpenAI) | gpt-transcribe (2026-09-19, whisper-1에서 교체) | 25MB | 범용 음성인식 (다국어) |
 | `clova-csr` | CLOVA CSR (Naver, Short) | clova-csr | 60초 | 한국어 특화, 빠른 인식 |
 | `clova-speech` | CLOVA Speech (Naver, Long) | clova-speech-long | 80분 | 장시간 오디오, 화자분리 |
 
@@ -118,9 +119,14 @@ AI 프로바이더에 채팅 요청을 보냅니다. **Fallback 체인**, **응�
   "temperature": 0.7,                 // (선택, 기본: 0.7)
   "use_fallback": true,               // (선택, 기본: true) 실패 시 자동 대체
   "use_cache": true,                   // (선택, 기본: true) 동일 요청 캐시
-  "caller": "saint-record"             // (선택) 호출자 식별 (사용량 추적용)
+  "caller": "saint-record",            // (선택) 호출자 식별 (사용량 추적용)
+  "model": "claude-sonnet-5",          // (선택) 같은 회사 모델, 허용 목록 안에서만
+  "options": { "reasoning": "off", "timeout_s": 60 }  // (선택) 추론 단계 / 공급사 호출 1회 상한(초, ≤300)
 }
 ```
+
+> `model`·`options`의 자세한 규칙(권장 기본값, 허용 목록, 같은 계열 대체, `timeout_s`)은
+> CLIENT_INTEGRATION_GUIDE.md의 '모델·옵션 지정'에 있습니다.
 
 **Response (200):**
 
@@ -133,7 +139,9 @@ AI 프로바이더에 채팅 요청을 보냅니다. **Fallback 체인**, **응�
     "input_tokens": 150,
     "output_tokens": 300
   },
-  "citations": null
+  "citations": null,
+  "finish_reason": "stop",
+  "applied": { "provider": "claude-sonnet", "model": "claude-sonnet-5", "reasoning": "off", "temperature": null, "fallback_from": null }
 }
 ```
 
@@ -148,7 +156,7 @@ AI 프로바이더에 채팅 요청을 보냅니다. **Fallback 체인**, **응�
 ```
 
 **사용 가능한 provider 값:**
-`claude-sonnet`, `claude-haiku`, `chatgpt`, `openai`(옛 별칭), `gemini-pro`, `gemini-flash`, `moonshot`, `perplexity`
+`claude-sonnet`, `claude-haiku`, `chatgpt`, `openai`(옛 별칭), `gemini-pro`, `gemini-flash`, `gemini-lite`, `moonshot`, `perplexity`
 
 **Fallback 체인 (기본):**
 
@@ -159,6 +167,7 @@ AI 프로바이더에 채팅 요청을 보냅니다. **Fallback 체인**, **응�
 | chatgpt / openai | claude-haiku → claude-sonnet → gemini-pro |
 | gemini-pro | claude-haiku → gemini-flash → claude-sonnet → chatgpt |
 | gemini-flash | claude-haiku → gemini-pro → chatgpt |
+| gemini-lite | gemini-flash → claude-haiku → chatgpt |
 | moonshot | claude-haiku → claude-sonnet → chatgpt |
 | perplexity | claude-haiku → claude-sonnet → chatgpt |
 
@@ -283,6 +292,9 @@ while (true) {
 >
 > `PUT /api/settings/provider/{id}`는 `options`도 받습니다: `{"reasoning": "off|low|medium|high", "fallback_model": "...", "fallback_after_s": 6}`.
 > `{}`를 보내면 권장 기본값으로 돌아갑니다. 조회 응답의 `effective_options`가 실제로 쓰이는 값입니다.
+>
+> `GET /api/settings/allowed-models`: 요청 `model`의 허용 목록(`allowed_models`, `is_default`)과 늘 허용되는 모델(`always_allowed`).
+> `PUT /api/settings/allowed-models` `{"allowed_models": [...]}`로 바꾸고, `null`이나 `[]`를 보내면 기본 목록으로 돌아갑니다.
 
 ### `GET /api/settings/providers`
 
@@ -380,7 +392,7 @@ JSON 설정 가져오기
   "language": "ko",
   "duration_sec": 12.5,
   "provider": "whisper",
-  "model": "whisper-1",
+  "model": "gpt-transcribe",
   "elapsed_ms": 3200
 }
 ```
@@ -438,7 +450,7 @@ STT 프로바이더 목록을 조회합니다.
 ```json
 {
   "providers": [
-    { "id": "whisper", "name": "Whisper (OpenAI)", "model": "whisper-1", "enabled": true, "has_api_key": true, "is_default": true }
+    { "id": "whisper", "name": "Whisper (OpenAI)", "model": "gpt-transcribe", "enabled": true, "has_api_key": true, "is_default": true }
   ],
   "default": "whisper"
 }
@@ -519,13 +531,14 @@ curl -X POST https://<gateway-url>/api/ai/chat \
 | `GOOGLE_API_KEY` | Google AI API 키 | - |
 | `GEMINI_PRO_MODEL` | Gemini Pro 모델 | gemini-pro-latest |
 | `GEMINI_FLASH_MODEL` | Gemini Flash 모델 | gemini-3.8-flash |
+| `GEMINI_LITE_MODEL` | gemini-lite 별칭 모델 | gemini-3.5-flash-lite |
 | `MOONSHOT_API_KEY` | Moonshot API 키 | - |
 | `MOONSHOT_MODEL` | Moonshot 모델 | kimi-k2-0905-preview |
 | `PERPLEXITY_API_KEY` | Perplexity API 키 | - |
 | `PERPLEXITY_MODEL` | Perplexity 모델 | sonar-pro |
 | `DEFAULT_AI_PROVIDER` | 기본 Chat 프로바이더 | claude-sonnet |
 | `GATEWAY_ADMIN_TOKEN` | 관리 API 토큰 (없으면 관리 API 503) | - |
-| `AI_PROVIDER_DEADLINE_S` | 공급사 호출 1회 상한(초) | 15 |
+| `AI_PROVIDER_DEADLINE_S` | 공급사 호출 1회 상한(초). 요청의 `options.timeout_s`가 우선 | 15 |
 | `AI_TOTAL_BUDGET_S` | 폴백 포함 요청 전체 상한(초) | 28 |
 | `DB_CONNECT_TIMEOUT_S` | DB 연결 타임아웃(초) | 5 |
 | `IMAGE_EDIT_OPENAI_MODEL` | 이미지 편집(OpenAI 경로) 모델 | gpt-image-2 |
