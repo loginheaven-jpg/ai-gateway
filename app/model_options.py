@@ -7,10 +7,11 @@ Precedence (highest first):
 Provider-specific translation (reasoning_effort / thinking / temperature rules)
 lives in each service; this module only decides the portable values.
 """
+import json
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-from .config import ProviderConfig, heal_model_id
+from .config import AIConfig, ProviderConfig, get_setting, heal_model_id
 
 REASONING_LEVELS = ("off", "low", "medium", "high")
 
@@ -42,8 +43,54 @@ ALIAS_FAMILY = {
 }
 
 
+# Models a request may pick with `model` (besides every alias's configured model
+# and its same-family fallback, which are always allowed). Admin-editable via
+# the `allowed_models` setting; empty/unset means this default list.
+DEFAULT_ALLOWED_MODELS = [
+    "claude-sonnet-5", "claude-haiku-4-5", "claude-haiku-4-5-20251001",
+    "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-sol",
+    "gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-pro-latest",
+]
+
+
 class ModelFamilyMismatch(ValueError):
     pass
+
+
+class ModelNotAllowed(ValueError):
+    pass
+
+
+def configured_allowed_models() -> list:
+    """The admin list, or the default list when unset."""
+    raw = get_setting("allowed_models")
+    if raw:
+        try:
+            value = json.loads(raw)
+            if isinstance(value, list):
+                return [str(m) for m in value]
+        except ValueError:
+            pass
+    return list(DEFAULT_ALLOWED_MODELS)
+
+
+def always_allowed_models(config: AIConfig) -> list:
+    """Every chat alias's configured model and same-family fallback model."""
+    models = set()
+    for alias, p in config.providers.items():
+        if p.service_type == "chat":
+            models.add(p.model)
+            fb = effective_options(alias, p).get("fallback_model")
+            if fb:
+                models.add(heal_model_id(fb))
+    return sorted(models)
+
+
+def check_model_allowed(model: str, config: AIConfig) -> None:
+    if model in configured_allowed_models() or model in always_allowed_models(config):
+        return
+    raise ModelNotAllowed(
+        f"Model '{model}' is not in the gateway's allowed list; ask the gateway admin to add it")
 
 
 @dataclass
@@ -64,7 +111,8 @@ def effective_options(alias: str, provider: Optional[ProviderConfig]) -> Dict[st
 
 
 def plan_call(alias: str, provider: ProviderConfig, request_model: Optional[str],
-              request_reasoning: Optional[str]) -> CallPlan:
+              request_reasoning: Optional[str], allowed: Optional[AIConfig] = None) -> CallPlan:
+    """`allowed`: the config to check a request model against (None: no check)."""
     opts = effective_options(alias, provider)
     model = provider.model
     if request_model:
@@ -73,6 +121,8 @@ def plan_call(alias: str, provider: ProviderConfig, request_model: Optional[str]
         if family and not requested.startswith(_FAMILY_PREFIXES[family]):
             raise ModelFamilyMismatch(
                 f"Model '{request_model}' cannot be served by provider '{alias}' ({family})")
+        if requested != provider.model and allowed is not None:
+            check_model_allowed(requested, allowed)
         model = requested
 
     reasoning = request_reasoning or opts.get("reasoning")

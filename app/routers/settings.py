@@ -3,7 +3,9 @@ from pydantic import BaseModel
 from typing import Any, Dict, Optional
 
 import asyncio
+import json
 import os
+from typing import List
 
 from ..config import (
     load_config, save_config, update_provider, reset_providers, set_default_provider as set_default_provider_config,
@@ -12,7 +14,7 @@ from ..config import (
 from ..usage import get_usage_stats, get_recent_logs
 from ..cache import response_cache
 from ..auth import require_admin
-from ..model_options import effective_options, REASONING_LEVELS
+from ..model_options import effective_options, REASONING_LEVELS, configured_allowed_models, always_allowed_models, DEFAULT_ALLOWED_MODELS
 
 router = APIRouter(
     prefix="/api/settings",
@@ -194,6 +196,28 @@ async def set_default_image_edit_provider(request: DefaultProviderRequest):
     set_setting("default_image_edit_provider", request.provider)
 
     return {"success": True, "default_image_edit_provider": request.provider}
+
+
+class AllowedModelsRequest(BaseModel):
+    allowed_models: Optional[List[str]] = None  # null / [] = back to the default list
+
+
+@router.get("/allowed-models")
+async def get_allowed_models():
+    """Models a request may choose with `model` (besides the always-allowed ones)."""
+    return {
+        "allowed_models": configured_allowed_models(),
+        "is_default": not get_setting("allowed_models"),
+        "default_models": DEFAULT_ALLOWED_MODELS,
+        "always_allowed": always_allowed_models(load_config()),
+    }
+
+
+@router.put("/allowed-models")
+async def put_allowed_models(request: AllowedModelsRequest):
+    models = sorted({m.strip() for m in (request.allowed_models or []) if m and m.strip()})
+    set_setting("allowed_models", json.dumps(models) if models else "")
+    return await get_allowed_models()
 
 
 def mask_api_key(api_key: str) -> str:

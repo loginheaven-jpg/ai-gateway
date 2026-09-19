@@ -9,12 +9,12 @@ import re
 import time
 import traceback
 
-from ..config import load_config, get_provider
+from ..config import load_config, get_provider, heal_model_id
 from ..usage import log_usage
 from ..cache import response_cache
 from ..circuit_breaker import breaker
 from ..auth import require_admin
-from ..model_options import plan_call, CallPlan, ModelFamilyMismatch, effective_options
+from ..model_options import plan_call, CallPlan, ModelFamilyMismatch, ModelNotAllowed, effective_options
 from ..services import (
     ClaudeService,
     ChatGPTService,
@@ -176,8 +176,9 @@ def _plan(provider_id: str, request: "ChatRequest", is_primary: bool) -> CallPla
         raise HTTPException(status_code=404, detail=f"Provider not found: {provider_id}")
     reasoning = request.options.reasoning if request.options else None
     try:
-        return plan_call(provider_id, provider, request.model if is_primary else None, reasoning)
-    except ModelFamilyMismatch as e:
+        return plan_call(provider_id, provider, request.model if is_primary else None, reasoning,
+                         allowed=load_config())
+    except (ModelFamilyMismatch, ModelNotAllowed) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -272,8 +273,8 @@ async def chat(request: ChatRequest):
 
     logger.info(f"[CHAT] Provider: {provider_id}, Messages: {len(request.messages)}")
 
-    # A model of another vendor is a client error: reject before any attempt
-    # (and before it could count against the provider's circuit breaker).
+    # A model of another vendor or outside the allowed list is a client error:
+    # reject before any attempt (and before it could count against the breaker).
     if request.model and get_provider(provider_id):
         _plan(provider_id, request, True)
 
@@ -298,6 +299,15 @@ async def chat(request: ChatRequest):
     timeout_s = request.options.timeout_s if request.options else None
     provider_deadline = timeout_s or PROVIDER_DEADLINE_S
     total_budget = min(max(TOTAL_BUDGET_S, 2 * timeout_s), 600.0) if timeout_s else TOTAL_BUDGET_S
+
+    # A model the request picked itself says nothing about the alias's health:
+    # its failures/successes are kept out of the alias's circuit breaker.
+    configured = get_provider(provider_id)
+    picked_model = bool(request.model and configured
+                        and heal_model_id(request.model.strip()) != configured.model)
+
+    def counts_for_breaker(pid: str) -> bool:
+        return not (picked_model and pid == provider_id)
 
     attempts: List[Dict[str, Any]] = []
     chain_start = time.time()
@@ -326,7 +336,8 @@ async def chat(request: ChatRequest):
         attempt_start = time.time()
         try:
             result = await _try_provider(pid, request, attempt_deadline, is_primary=(pid == provider_id))
-            breaker.record_success(pid)
+            if counts_for_breaker(pid):
+                breaker.record_success(pid)
 
             if request.use_cache and not has_images and pid == provider_id:
                 response_cache.set(
@@ -342,7 +353,8 @@ async def chat(request: ChatRequest):
         except HTTPException as e:
             kind = _classify_error(e)
             reason = str(e.detail)[:200]
-            breaker.record_failure(pid, kind, reason)
+            if counts_for_breaker(pid):
+                breaker.record_failure(pid, kind, reason)
             attempts.append({
                 "provider": pid, "status": kind, "reason": reason,
                 "elapsed_ms": int((time.time() - attempt_start) * 1000),
@@ -351,7 +363,8 @@ async def chat(request: ChatRequest):
                 raise
             logger.warning(f"[FALLBACK] {pid} {kind} ({e.detail}), trying next...")
         except asyncio.TimeoutError:
-            breaker.record_failure(pid, "transient", "timeout")
+            if counts_for_breaker(pid):
+                breaker.record_failure(pid, "transient", "timeout")
             attempts.append({
                 "provider": pid, "status": "timeout",
                 "reason": f"exceeded {attempt_deadline:.1f}s deadline",
@@ -366,7 +379,8 @@ async def chat(request: ChatRequest):
         except Exception as e:
             kind = _classify_error(e)
             reason = f"{type(e).__name__}: {str(e)[:200]}"
-            breaker.record_failure(pid, kind, reason)
+            if counts_for_breaker(pid):
+                breaker.record_failure(pid, kind, reason)
             attempts.append({
                 "provider": pid, "status": kind, "reason": reason,
                 "elapsed_ms": int((time.time() - attempt_start) * 1000),

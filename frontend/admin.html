@@ -44,6 +44,26 @@
             <!-- Provider cards will be loaded here -->
         </div>
 
+        <!-- Allowed request models -->
+        <div class="card mt-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">요청 모델 허용 목록</h5>
+                <span class="badge bg-secondary" id="allowed-models-source"></span>
+            </div>
+            <div class="card-body">
+                <p class="small text-muted mb-2">
+                    앱이 요청에 <code>model</code>을 직접 지정할 때 허용되는 모델입니다(한 줄에 하나).
+                    각 별칭에 설정된 모델과 그 대체 모델은 목록과 상관없이 항상 허용됩니다:
+                    <span id="always-allowed-models"></span>
+                </p>
+                <textarea class="form-control font-monospace small" id="allowed-models" rows="6"></textarea>
+                <div class="d-flex gap-2 mt-2">
+                    <button class="btn btn-sm btn-primary" onclick="saveAllowedModels()">저장</button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="resetAllowedModels()">기본 목록으로</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Test Section -->
         <div class="card mt-4">
             <div class="card-header">
@@ -692,6 +712,36 @@
             } catch (error) {
                 alert('Failed to save: ' + error.message);
             }
+        }
+
+        async function loadAllowedModels() {
+            try {
+                const res = await fetch(`${API_BASE}/api/settings/allowed-models`);
+                if (!res.ok) return;
+                const data = await res.json();
+                document.getElementById('allowed-models').value = data.allowed_models.join('\n');
+                document.getElementById('allowed-models-source').textContent = data.is_default ? '기본 목록' : '관리자 지정';
+                document.getElementById('always-allowed-models').textContent = data.always_allowed.join(', ');
+            } catch (e) { /* ignore */ }
+        }
+
+        async function putAllowedModels(list) {
+            const res = await fetch(`${API_BASE}/api/settings/allowed-models`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ allowed_models: list })
+            });
+            if (!res.ok) { alert('저장 실패: ' + res.status); return; }
+            loadAllowedModels();
+        }
+
+        function saveAllowedModels() {
+            const list = document.getElementById('allowed-models').value.split('\n').map(s => s.trim()).filter(Boolean);
+            putAllowedModels(list);
+        }
+
+        function resetAllowedModels() {
+            if (confirm('기본 허용 목록으로 되돌릴까요?')) putAllowedModels(null);
         }
 
         async function setDefault(providerId) {
@@ -1416,6 +1466,7 @@
             const testSelect = document.getElementById('test-provider');
             streamSelect.innerHTML = testSelect.innerHTML;
         });
+        loadAllowedModels();
         loadSttProviders();
         loadImageProviders();
         loadImageEditDefault();
