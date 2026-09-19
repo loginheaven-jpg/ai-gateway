@@ -18,6 +18,7 @@ class AIService(ABC):
         max_tokens: int = 4096,
         temperature: Optional[float] = 0.7,
         reasoning: Optional[str] = None,
+        timeout_s: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         Send a chat request to the AI provider.
@@ -28,6 +29,7 @@ class AIService(ABC):
             max_tokens: Maximum tokens in response
             temperature: Sampling temperature (None: don't send)
             reasoning: 'off' | 'low' | 'medium' | 'high' | None (provider default)
+            timeout_s: caller's per-attempt time limit (None: gateway default)
 
         Returns:
             Dict with 'content', 'model', 'usage' keys

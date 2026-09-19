@@ -103,6 +103,7 @@ class ChatGPTService(AIService):
         max_tokens: int = 4096,
         temperature: Optional[float] = 0.7,
         reasoning: Optional[str] = None,
+        timeout_s: Optional[float] = None,  # HTTP client allows 300s, the API maximum
     ) -> Dict[str, Any]:
         extra, applied_reasoning, temperature = _openai_options(self.model, reasoning, temperature)
         logger.info(f"[OPENAI] Model: {self.model}, Max tokens: {max_tokens}, reasoning: {applied_reasoning}")

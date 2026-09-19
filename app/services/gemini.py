@@ -62,6 +62,7 @@ class GeminiService(AIService):
         max_tokens: int = 4096,
         temperature: Optional[float] = 0.7,
         reasoning: Optional[str] = None,
+        timeout_s: Optional[float] = None,
     ) -> Dict[str, Any]:
         thinking, applied_reasoning = _thinking_config(self.model, reasoning)
         logger.info(f"[GEMINI] Model: {self.model}, Max tokens: {max_tokens}, reasoning: {applied_reasoning}")
@@ -140,6 +141,9 @@ class GeminiService(AIService):
             config_kwargs["temperature"] = temperature
         if thinking:
             config_kwargs["thinking_config"] = types.ThinkingConfig(**thinking)
+        if timeout_s:
+            # Per-request SDK timeout, just above the caller's limit (default is the client's)
+            config_kwargs["http_options"] = types.HttpOptions(timeout=int((timeout_s + 5) * 1000))
 
         logger.info(f"[GEMINI] Calling API...")
         try:

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Dict, Optional, Any, Literal
 import asyncio
 import json
@@ -92,6 +92,9 @@ class ChatOptions(BaseModel):
     # Portable reasoning / thinking level, translated per provider.
     # Omitted: the alias default (admin setting, else the recommended default).
     reasoning: Optional[Literal["off", "low", "medium", "high"]] = None
+    # Per-attempt time limit for long generations (default AI_PROVIDER_DEADLINE_S).
+    # The whole request (with fallbacks) may then take up to 2x this, max 600s.
+    timeout_s: Optional[float] = Field(default=None, gt=0, le=300)
 
 
 class ChatRequest(BaseModel):
@@ -196,11 +199,15 @@ async def _try_provider(
     so it also applies when use_fallback is false. Raises on failure."""
     plan = _plan(provider_id, request, is_primary)
     attempts = [plan.model] + ([plan.fallback_model] if plan.fallback_model else [])
+    timeout_s = request.options.timeout_s if request.options else None
     chain_start = time.time()
     for i, model in enumerate(attempts):
         service = get_ai_service(provider_id, model)
         remaining = deadline_s - (time.time() - chain_start)
-        timeout = min(plan.fallback_after_s, remaining) if (i == 0 and plan.fallback_model) else remaining
+        # A caller-set timeout means a long answer is expected: switch to the
+        # same-family fallback only on failure, not after fallback_after_s.
+        quick_switch = i == 0 and plan.fallback_model and not timeout_s
+        timeout = min(plan.fallback_after_s, remaining) if quick_switch else remaining
         start_time = time.time()
         try:
             result = await asyncio.wait_for(
@@ -210,6 +217,7 @@ async def _try_provider(
                     max_tokens=request.max_tokens,
                     temperature=request.temperature,
                     reasoning=plan.reasoning,
+                    timeout_s=timeout_s,
                 ),
                 timeout=timeout,
             )
@@ -232,6 +240,8 @@ async def _try_provider(
                 "temperature": result.pop("applied_temperature", None),
                 "fallback_from": attempts[0] if i > 0 else None,
             }
+            if timeout_s:
+                result["applied"]["timeout_s"] = timeout_s
             return result
         except Exception as e:
             elapsed_ms = int((time.time() - start_time) * 1000)
@@ -285,10 +295,14 @@ async def chat(request: ChatRequest):
         fallbacks = FALLBACK_CHAINS.get(provider_id, [])
         providers_to_try.extend(fallbacks)
 
+    timeout_s = request.options.timeout_s if request.options else None
+    provider_deadline = timeout_s or PROVIDER_DEADLINE_S
+    total_budget = min(max(TOTAL_BUDGET_S, 2 * timeout_s), 600.0) if timeout_s else TOTAL_BUDGET_S
+
     attempts: List[Dict[str, Any]] = []
     chain_start = time.time()
     for pid in providers_to_try:
-        remaining = TOTAL_BUDGET_S - (time.time() - chain_start)
+        remaining = total_budget - (time.time() - chain_start)
         if remaining <= 1.0:
             attempts.append({
                 "provider": pid, "status": "skipped",
@@ -308,7 +322,7 @@ async def chat(request: ChatRequest):
             logger.info(f"[BREAKER] skipping {pid} (open)")
             continue
 
-        attempt_deadline = min(PROVIDER_DEADLINE_S, remaining)
+        attempt_deadline = min(provider_deadline, remaining)
         attempt_start = time.time()
         try:
             result = await _try_provider(pid, request, attempt_deadline, is_primary=(pid == provider_id))

@@ -92,6 +92,7 @@ class ClaudeService(AIService):
         max_tokens: int = 4096,
         temperature: Optional[float] = 0.7,
         reasoning: Optional[str] = None,
+        timeout_s: Optional[float] = None,  # HTTP client allows 300s, the API maximum
     ) -> Dict[str, Any]:
         payload, applied_reasoning = self._payload(messages, system_prompt, max_tokens, temperature, reasoning)
 

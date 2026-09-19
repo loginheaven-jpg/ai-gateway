@@ -17,6 +17,7 @@ class PerplexityService(AIService):
         max_tokens: int = 4096,
         temperature: Optional[float] = 0.7,
         reasoning: Optional[str] = None,  # not applicable
+        timeout_s: Optional[float] = None,
     ) -> Dict[str, Any]:
         # Perplexity does not support vision/image content
         for msg in messages:
@@ -46,7 +47,7 @@ class PerplexityService(AIService):
             f"{self.base_url}/chat/completions",
             headers=headers,
             json=payload,
-            timeout=120.0,
+            timeout=max(120.0, (timeout_s or 0) + 5),
         )
         response.raise_for_status()
         data = response.json()
