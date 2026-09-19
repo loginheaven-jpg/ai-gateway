@@ -20,7 +20,9 @@ from ..services import (
     ChatGPTService,
     GeminiService,
     MoonshotService,
-    PerplexityService
+    PerplexityService,
+    DeepSeekService,
+    MistralService,
 )
 
 # INFO, not DEBUG: at DEBUG the openai SDK logs full request bodies (user prompts).
@@ -41,6 +43,11 @@ FALLBACK_CHAINS = {
     "gemini-lite": ["gemini-flash", "claude-haiku", "chatgpt"],
     "moonshot": ["claude-haiku", "claude-sonnet", "chatgpt"],
     "perplexity": ["claude-haiku", "claude-sonnet", "chatgpt"],
+    # Only callers that pick these aliases send data to them: no other chain
+    # falls back to them (DeepSeek keeps data in the PRC; mistral-large has a
+    # low per-model rate limit).
+    "deepseek": ["gemini-flash", "claude-haiku", "chatgpt"],
+    "mistral": ["gemini-flash", "claude-haiku", "chatgpt"],
 }
 
 # Time budgets — keep total below typical 30s client timeout so we can return
@@ -53,10 +60,10 @@ TOTAL_BUDGET_S      = float(os.getenv("AI_TOTAL_BUDGET_S", "28"))
 _PERMANENT_PATTERNS = re.compile(
     r"insufficient_quota|invalid_api_key|authentication|not_found_error|"
     r"model_not_found|permission_denied|billing|account_deactivated|"
-    r"NOT_FOUND|is not found",
+    r"NOT_FOUND|is not found|Insufficient Balance",
     re.IGNORECASE,
 )
-_PERMANENT_STATUSES = {400, 401, 403, 404}
+_PERMANENT_STATUSES = {400, 401, 402, 403, 404, 422}  # 402: DeepSeek out of balance
 
 
 def _classify_error(exc: BaseException) -> str:
@@ -155,7 +162,9 @@ def get_ai_service(provider_id: str, model: Optional[str] = None):
         "gemini-flash": GeminiService,
         "gemini-lite": GeminiService,
         "moonshot": MoonshotService,
-        "perplexity": PerplexityService
+        "perplexity": PerplexityService,
+        "deepseek": DeepSeekService,
+        "mistral": MistralService,
     }
 
     service_class = service_map.get(provider_id)

@@ -210,6 +210,20 @@ def _get_default_providers():
             base_url="https://api.perplexity.ai",
             enabled=True
         ),
+        "deepseek": ProviderConfig(
+            name="DeepSeek",
+            api_key=os.getenv("DEEPSEEK_API_KEY", ""),
+            model=os.getenv("DEEPSEEK_MODEL", "deepseek-flash"),
+            base_url="https://api.deepseek.com",
+            enabled=True
+        ),
+        "mistral": ProviderConfig(
+            name="Mistral",
+            api_key=os.getenv("MISTRAL_API_KEY", ""),
+            model=os.getenv("MISTRAL_MODEL", "mistral-medium-latest"),
+            base_url="https://api.mistral.ai/v1",
+            enabled=True
+        ),
         # STT Providers
         "whisper": ProviderConfig(
             name="Whisper (OpenAI)",
@@ -387,6 +401,10 @@ RETIRED_MODELS = {
     # Retired image models (OpenAI DALL-E 2/3; Imagen 3 removed from the Gemini API)
     "dall-e":       ({"dall-e-3", "dall-e-2", "gpt-image-1"},    "gpt-image-2.5-flare"),
     "imagen":       ({"imagen-3.0-generate-002", "imagen-3.0-generate-001"}, "gemini-3.1-flash-image"),
+    # Old DeepSeek names (V3 / V4 era); some still work upstream, but only "temporarily"
+    "deepseek":     ({"deepseek-chat", "deepseek-reasoner", "deepseek-v3", "deepseek-v4",
+                      "deepseek-v4-flash", "deepseek-v4-flash-vision-exp"}, "deepseek-flash"),
+    "mistral":      ({"magistral-medium-2509", "magistral-medium-2507", "mistral-medium-2508"}, "mistral-medium-latest"),
 }
 # Display names that described the retired model; replaced only if unchanged
 RENAMED = {
@@ -394,6 +412,16 @@ RENAMED = {
     "imagen": ("Imagen 3 (Google)", "Gemini Image (Google)"),
 }
 _RETIRED_BY_ID = {bad: good for bad_ids, good in RETIRED_MODELS.values() for bad in bad_ids}
+# Retired IDs whose successor is not the alias's usual model (verified to
+# return 400 upstream on 2026-09-19); healed in requests and alias configs.
+RETIRED_BY_ID_EXTRA = {
+    "mistral-large-2411": "mistral-large-latest",
+    "pixtral-large-latest": "mistral-large-latest",
+    "pixtral-large-2411": "mistral-large-latest",
+    "magistral-small-2509": "mistral-small-latest",
+    "magistral-small-2507": "mistral-small-latest",
+}
+_RETIRED_BY_ID.update(RETIRED_BY_ID_EXTRA)
 
 
 def heal_model_id(model: str) -> str:
@@ -469,11 +497,37 @@ def _migrate(config: AIConfig) -> bool:
             if p.name == old_name:
                 update["name"] = new_name
             config.providers[pid] = p.model_copy(update=update)
+    for pid, p in list(config.providers.items()):
+        if p.model in RETIRED_BY_ID_EXTRA:
+            healed.append(f"{pid}:{p.model}->{RETIRED_BY_ID_EXTRA[p.model]}")
+            config.providers[pid] = p.model_copy(update={"model": RETIRED_BY_ID_EXTRA[p.model]})
     if healed:
         changed = True
         print(f"[CONFIG] Auto-healed retired models: {healed}")
 
     return changed
+
+
+# Aliases added to existing deployments (auto-added, possibly before their
+# Railway key variable existed). Older aliases were seeded with their keys.
+ENV_KEY_FILL = {"deepseek", "mistral"}
+
+
+def _fill_env_keys(config: AIConfig) -> bool:
+    """Startup only: an ENV_KEY_FILL alias stored without a key picks up its
+    env key once one is set. Keys in the DB are never overwritten. To switch
+    such a provider off, disable it (enabled=false) or remove the variable:
+    a key cleared in the admin UI comes back at the next restart while the
+    variable is set."""
+    filled = []
+    for pid, default in _get_default_providers().items():
+        p = config.providers.get(pid)
+        if pid in ENV_KEY_FILL and p and not p.api_key and default.api_key:
+            config.providers[pid] = p.model_copy(update={"api_key": default.api_key})
+            filled.append(pid)
+    if filled:
+        print(f"[CONFIG] API keys filled from environment: {filled}")
+    return bool(filled)
 
 
 def _bootstrap_from_db() -> AIConfig:
@@ -482,7 +536,8 @@ def _bootstrap_from_db() -> AIConfig:
 
     config = _load_from_db()
     if config:
-        if _migrate(config):
+        changed = _migrate(config)
+        if _fill_env_keys(config) or changed:
             _save_to_db(config)
     else:
         # Genuinely empty DB: seed from legacy JSON, else from environment.

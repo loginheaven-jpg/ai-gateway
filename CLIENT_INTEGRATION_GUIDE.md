@@ -43,6 +43,8 @@ Content-Type: application/json
 | `gemini-lite` | Gemini 3.5 Flash-Lite | 분류·짧은 답(예: 질문 판별). 가장 빠르고 저렴 |
 | `moonshot` | Kimi K2 | 중국어 특화 |
 | `perplexity` | Sonar Pro | 웹 검색 + AI 답변 |
+| `deepseek` | DeepSeek V4.1 Flash | 가장 저렴, 이미지 가능. **데이터가 중국 서버에서 처리됨** (아래 'DeepSeek·Mistral 주의') |
+| `mistral` | Mistral Medium 3.5 | 프랑스 회사(EU), 이미지 가능 |
 
 ### 기본 호출 (provider 미지정 → 기본값 자동)
 
@@ -115,7 +117,8 @@ const res = await fetch(`${AI_GATEWAY_URL}/api/ai/chat`, {
   빠른 분류용 모델이 필요하면 `model` 대신 `provider: "gemini-lite"`를 쓰세요.
 - `model`은 게이트웨이의 **허용 목록**에 있는 모델만 받습니다. 목록에 없으면 공급사를 부르지 않고 400
   (`... is not in the gateway's allowed list ...`)을 돌려줍니다. 각 별칭에 설정된 모델과 그 같은 계열 대체 모델은 늘 허용됩니다.
-  기본 목록: claude-sonnet-5, claude-haiku-4-5, gpt-5.6-terra / luna / sol, gemini-3.8-flash, gemini-3.5-flash-lite, gemini-pro-latest.
+  기본 목록: claude-sonnet-5, claude-haiku-4-5, gpt-5.6-terra / luna / sol, gemini-3.8-flash, gemini-3.5-flash-lite, gemini-pro-latest,
+  deepseek-flash, deepseek-v4-pro, mistral-medium-latest, mistral-small-latest, mistral-large-latest.
   목록을 늘리려면 게이트웨이 관리자에게 요청하세요(관리 화면 '요청 모델 허용 목록').
 - 요청에서 고른 `model`이 실패해도 그 별칭의 차단기(연속 실패 시 잠시 건너뛰기)에는 세지 않습니다.
   한 앱의 모델 선택이 같은 별칭을 쓰는 다른 앱을 막지 않게 하려는 것입니다.
@@ -138,8 +141,25 @@ const res = await fetch(`${AI_GATEWAY_URL}/api/ai/chat`, {
 | `gemini-flash` | gemini-3.8-flash | low | 6초 안에 답이 없으면 gemini-3.5-flash-lite |
 | `gemini-lite` | gemini-3.5-flash-lite | 끔 | – |
 | `gemini-pro` | gemini-pro-latest | 모델 기본값(끌 수 없음) | – |
+| `deepseek` | deepseek-flash | 끔 | – |
+| `mistral` | mistral-medium-latest | 끔 | – |
 
 같은 계열 대체는 같은 회사 모델로만 바꾸므로 `use_fallback: false`여도 적용됩니다(칸 이름이 그대로 맞음).
+
+**DeepSeek·Mistral 주의** (2026-09-19 추가)
+
+- **DeepSeek은 데이터를 중국(PRC) 서버에서 처리·보관**하고, API 입력을 학습에 쓰지 않는다는 약관이 없습니다.
+  교인 개인정보, 상담 내용처럼 민감한 내용은 `deepseek`으로 보내지 마세요.
+- 추론 단계: DeepSeek은 `low`, `high`(`medium`은 `high`로 처리). Mistral은 켜면 `high` 하나뿐이고, small·medium 모델만 추론합니다.
+  `mistral-large-latest`는 추론이 없어 `options.reasoning`을 무시합니다(`applied.reasoning`이 null).
+  추론을 켜면 추론에 쓴 토큰도 `max_tokens`에 포함되므로 넉넉히 주세요(1,000~3,000). 추론만 하다 끝나면 빈 답 대신 실패로 처리해 폴백합니다.
+- `deepseek-v4-pro`는 이미지를 받지 못합니다. 이미지가 든 요청은 게이트웨이가 보내지 않고 다음 공급사로 넘깁니다.
+- 옛 이름 `deepseek-chat`, `deepseek-reasoner`, `deepseek-v4-flash`는 `deepseek-flash`로, 퇴역한 `magistral-medium-*`·`magistral-small-*`는
+  `mistral-medium-latest`·`mistral-small-latest`로 바뀝니다. 옛 추론 모델 이름을 보내도 추론이 켜지지 않으니 `options.reasoning`으로 정하세요.
+- 메시지 역할은 `system`·`user`·`assistant`(`developer`는 `system`으로)만 받습니다. 그 밖의 역할은 보내지 않고 다음 공급사로 넘깁니다.
+- `mistral-large-latest`는 분당 15회로 제한돼 있어 자주 부르는 기능에는 맞지 않습니다.
+- Mistral은 마지막 메시지가 assistant면 그 글을 이어서 씁니다(Claude와 같게, 앞부분은 빼고 돌려줌). 다른 공급사는 이어 쓰지 않습니다.
+- 성경 고유명사 표기는 모델마다 다릅니다. 추론을 끈 `deepseek-flash`와 Mistral은 '키프로스·마케도니아'처럼 일반 지명을 쓰는 경우가 많았습니다(`deepseek-v4-pro`는 '구브로·마게도냐').
 
 
 ### 응답 형식
@@ -184,8 +204,11 @@ const res = await fetch(`${AI_GATEWAY_URL}/api/ai/chat`, {
 | gemini-lite | gemini-flash → claude-haiku → chatgpt |
 | moonshot | claude-haiku → claude-sonnet → chatgpt |
 | perplexity | claude-haiku → claude-sonnet → chatgpt |
+| deepseek | gemini-flash → claude-haiku → chatgpt |
+| mistral | gemini-flash → claude-haiku → chatgpt |
 
 순서의 기준은 코드(`app/routers/ai.py`의 `FALLBACK_CHAINS`)입니다. `use_fallback: false`면 1차 provider만 시도합니다.
+`deepseek`·`mistral`은 다른 별칭의 폴백 순서에 들어 있지 않습니다. 호출하는 쪽이 직접 고를 때만 데이터가 그쪽으로 갑니다.
 
 응답의 `provider` 필드로 실제 사용된 엔진을 확인할 수 있습니다.
 
@@ -256,6 +279,8 @@ while (true) {
 | `gemini-flash` | O |
 | `moonshot` | X (자동 fallback) |
 | `perplexity` | X (자동 fallback) |
+| `deepseek` | O (deepseek-flash만. `deepseek-v4-pro`는 X, 자동 fallback) |
+| `mistral` | O |
 
 ### 호출 예시 (영수증 분석)
 

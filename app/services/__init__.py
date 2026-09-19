@@ -4,6 +4,8 @@ from .chatgpt import ChatGPTService
 from .gemini import GeminiService
 from .moonshot import MoonshotService
 from .perplexity import PerplexityService
+from .deepseek import DeepSeekService
+from .mistral import MistralService
 from .stt_base import STTService
 from .whisper import WhisperService
 from .clova_csr import ClovaCsrService
@@ -20,6 +22,8 @@ __all__ = [
     "GeminiService",
     "MoonshotService",
     "PerplexityService",
+    "DeepSeekService",
+    "MistralService",
     "STTService",
     "WhisperService",
     "ClovaCsrService",

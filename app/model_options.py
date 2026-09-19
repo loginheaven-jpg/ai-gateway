@@ -26,6 +26,10 @@ ALIAS_DEFAULTS: Dict[str, Dict[str, Any]] = {
     "openai": {"reasoning": "off"},
     "claude-sonnet": {"reasoning": "off"},
     "claude-haiku": {"reasoning": "off"},
+    # Both reason by default upstream (DeepSeek) or on request (Mistral); off
+    # keeps answers fast and cheap unless a request asks for reasoning.
+    "deepseek": {"reasoning": "off"},
+    "mistral": {"reasoning": "off"},
 }
 
 # Model-ID prefixes each alias family can serve (a request may only pick a
@@ -36,12 +40,15 @@ _FAMILY_PREFIXES = {
     "google": ("gemini-",),
     "moonshot": ("kimi-", "moonshot-"),
     "perplexity": ("sonar",),
+    "deepseek": ("deepseek-",),
+    "mistral": ("mistral-", "magistral-", "ministral-", "codestral-", "open-mistral", "pixtral-"),
 }
 ALIAS_FAMILY = {
     "claude-sonnet": "anthropic", "claude-haiku": "anthropic",
     "chatgpt": "openai", "openai": "openai",
     "gemini-pro": "google", "gemini-flash": "google", "gemini-lite": "google",
     "moonshot": "moonshot", "perplexity": "perplexity",
+    "deepseek": "deepseek", "mistral": "mistral",
 }
 
 
@@ -52,6 +59,8 @@ DEFAULT_ALLOWED_MODELS = [
     "claude-sonnet-5", "claude-haiku-4-5", "claude-haiku-4-5-20251001",
     "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-sol",
     "gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-pro-latest",
+    "deepseek-flash", "deepseek-v4-pro",
+    "mistral-medium-latest", "mistral-small-latest", "mistral-large-latest",
 ]
 
 

@@ -2,7 +2,7 @@
 
 ## Overview
 
-AI Gateway는 여러 AI 프로바이더(Claude, ChatGPT, Gemini, Moonshot, Perplexity)와 STT 프로바이더(Whisper, CLOVA Speech)를 통합 관리하는 중앙 집중형 게이트웨이 서비스입니다. 다른 서비스에서 단일 API로 다양한 AI 모델(텍스트 + Vision 이미지 분석)과 음성인식(STT)을 호출할 수 있습니다.
+AI Gateway는 여러 AI 프로바이더(Claude, ChatGPT, Gemini, Moonshot, Perplexity, DeepSeek, Mistral)와 STT 프로바이더(Whisper, CLOVA Speech)를 통합 관리하는 중앙 집중형 게이트웨이 서비스입니다. 다른 서비스에서 단일 API로 다양한 AI 모델(텍스트 + Vision 이미지 분석)과 음성인식(STT)을 호출할 수 있습니다.
 
 ## Tech Stack
 
@@ -36,6 +36,9 @@ ai-gateway/
 │       ├── gemini.py         # Google Gemini (Pro/Flash)
 │       ├── moonshot.py       # Moonshot Kimi
 │       ├── perplexity.py     # Perplexity (검색 특화)
+│       ├── openai_compat.py  # OpenAI 호환 API 공통 (httpx, 추론 텍스트 제거, 오류 본문 보존)
+│       ├── deepseek.py       # DeepSeek
+│       ├── mistral.py        # Mistral
 │       ├── whisper.py        # OpenAI Whisper (STT)
 │       ├── clova_csr.py      # Naver CLOVA CSR (STT, 단시간)
 │       └── clova_stt.py      # Naver CLOVA Speech Long (STT, 장시간)
@@ -58,6 +61,8 @@ ai-gateway/
 | `gemini-lite` | Gemini (Flash-Lite) | gemini-3.5-flash-lite (추론 끔) | 분류·짧은 답 |
 | `moonshot` | Moonshot (Kimi) | kimi-k2-0905-preview | 중국어 특화 |
 | `perplexity` | Perplexity | sonar-pro | 웹 검색 + AI 답변 |
+| `deepseek` | DeepSeek | deepseek-flash (추론 끔) | 저렴한 범용. 데이터가 중국 서버에서 처리됨 |
+| `mistral` | Mistral | mistral-medium-latest (추론 끔) | 범용 (EU) |
 
 ## STT Providers (Speech-to-Text)
 
@@ -156,7 +161,7 @@ AI 프로바이더에 채팅 요청을 보냅니다. **Fallback 체인**, **응�
 ```
 
 **사용 가능한 provider 값:**
-`claude-sonnet`, `claude-haiku`, `chatgpt`, `openai`(옛 별칭), `gemini-pro`, `gemini-flash`, `gemini-lite`, `moonshot`, `perplexity`
+`claude-sonnet`, `claude-haiku`, `chatgpt`, `openai`(옛 별칭), `gemini-pro`, `gemini-flash`, `gemini-lite`, `moonshot`, `perplexity`, `deepseek`, `mistral`
 
 **Fallback 체인 (기본):**
 
@@ -170,8 +175,11 @@ AI 프로바이더에 채팅 요청을 보냅니다. **Fallback 체인**, **응�
 | gemini-lite | gemini-flash → claude-haiku → chatgpt |
 | moonshot | claude-haiku → claude-sonnet → chatgpt |
 | perplexity | claude-haiku → claude-sonnet → chatgpt |
+| deepseek | gemini-flash → claude-haiku → chatgpt |
+| mistral | gemini-flash → claude-haiku → chatgpt |
 
 순서의 기준은 코드(`app/routers/ai.py`의 `FALLBACK_CHAINS`)입니다. `use_fallback: false`면 1차 provider만 시도합니다.
+`deepseek`·`mistral`은 다른 별칭의 폴백 순서에 들어 있지 않습니다. 호출하는 쪽이 직접 고를 때만 데이터가 그쪽으로 갑니다.
 
 ---
 
@@ -289,6 +297,7 @@ while (true) {
 > `/api/ai/health/providers`, `/api/ai/health/breaker/reset`, `/api/ai/batch-chat`도 같습니다.
 > 앱이 부르는 `/api/ai/chat`, `/chat/stream`, `/stt`, `/image`, `/image/edit`에는 필요 없습니다.
 > 설정은 서버 시작 시 DB에서 한 번 읽어 메모리에 둡니다. DB를 직접 고쳤다면 서비스를 재시작하십시오.
+> DB에 키가 비어 있는 공급사는 서버 시작 때 환경변수의 키(예: `DEEPSEEK_API_KEY`)로 채웁니다. DB에 있는 키는 덮어쓰지 않습니다.
 >
 > `PUT /api/settings/provider/{id}`는 `options`도 받습니다: `{"reasoning": "off|low|medium|high", "fallback_model": "...", "fallback_after_s": 6}`.
 > `{}`를 보내면 권장 기본값으로 돌아갑니다. 조회 응답의 `effective_options`가 실제로 쓰이는 값입니다.
@@ -536,6 +545,10 @@ curl -X POST https://<gateway-url>/api/ai/chat \
 | `MOONSHOT_MODEL` | Moonshot 모델 | kimi-k2-0905-preview |
 | `PERPLEXITY_API_KEY` | Perplexity API 키 | - |
 | `PERPLEXITY_MODEL` | Perplexity 모델 | sonar-pro |
+| `DEEPSEEK_API_KEY` | DeepSeek API 키 | - |
+| `DEEPSEEK_MODEL` | DeepSeek 모델 | deepseek-flash |
+| `MISTRAL_API_KEY` | Mistral API 키 | - |
+| `MISTRAL_MODEL` | Mistral 모델 | mistral-medium-latest |
 | `DEFAULT_AI_PROVIDER` | 기본 Chat 프로바이더 | claude-sonnet |
 | `GATEWAY_ADMIN_TOKEN` | 관리 API 토큰 (없으면 관리 API 503) | - |
 | `AI_PROVIDER_DEADLINE_S` | 공급사 호출 1회 상한(초). 요청의 `options.timeout_s`가 우선 | 15 |
