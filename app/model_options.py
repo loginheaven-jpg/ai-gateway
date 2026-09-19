@@ -20,6 +20,8 @@ REASONING_LEVELS = ("off", "low", "medium", "high")
 ALIAS_DEFAULTS: Dict[str, Dict[str, Any]] = {
     "gemini-flash": {"reasoning": "low",
                      "fallback_model": "gemini-3.5-flash-lite", "fallback_after_s": 6},
+    # Fast, cheap classification/short answers (e.g. yebomcard's gate)
+    "gemini-lite": {"reasoning": "off"},
     "chatgpt": {"reasoning": "off"},
     "openai": {"reasoning": "off"},
     "claude-sonnet": {"reasoning": "off"},
@@ -38,7 +40,7 @@ _FAMILY_PREFIXES = {
 ALIAS_FAMILY = {
     "claude-sonnet": "anthropic", "claude-haiku": "anthropic",
     "chatgpt": "openai", "openai": "openai",
-    "gemini-pro": "google", "gemini-flash": "google",
+    "gemini-pro": "google", "gemini-flash": "google", "gemini-lite": "google",
     "moonshot": "moonshot", "perplexity": "perplexity",
 }
 

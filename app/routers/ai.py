@@ -38,6 +38,7 @@ FALLBACK_CHAINS = {
     "openai": ["claude-haiku", "claude-sonnet", "gemini-pro"],  # legacy alias
     "gemini-pro": ["claude-haiku", "gemini-flash", "claude-sonnet", "chatgpt"],
     "gemini-flash": ["claude-haiku", "gemini-pro", "chatgpt"],
+    "gemini-lite": ["gemini-flash", "claude-haiku", "chatgpt"],
     "moonshot": ["claude-haiku", "claude-sonnet", "chatgpt"],
     "perplexity": ["claude-haiku", "claude-sonnet", "chatgpt"],
 }
@@ -152,6 +153,7 @@ def get_ai_service(provider_id: str, model: Optional[str] = None):
         "openai": ChatGPTService,  # legacy alias
         "gemini-pro": GeminiService,
         "gemini-flash": GeminiService,
+        "gemini-lite": GeminiService,
         "moonshot": MoonshotService,
         "perplexity": PerplexityService
     }

@@ -189,6 +189,13 @@ def _get_default_providers():
             base_url="https://generativelanguage.googleapis.com/v1beta",
             enabled=True
         ),
+        "gemini-lite": ProviderConfig(
+            name="Gemini (Flash-Lite)",
+            api_key=os.getenv("GOOGLE_API_KEY", ""),
+            model=os.getenv("GEMINI_LITE_MODEL", "gemini-3.5-flash-lite"),
+            base_url="https://generativelanguage.googleapis.com/v1beta",
+            enabled=True
+        ),
         "moonshot": ProviderConfig(
             name="Moonshot (Kimi)",
             api_key=os.getenv("MOONSHOT_API_KEY", ""),
@@ -429,10 +436,16 @@ def _migrate(config: AIConfig) -> bool:
     """Startup-time fixups. Returns True if the DB copy needs saving."""
     changed = False
 
-    # Auto-merge new default providers not yet in DB
+    # Auto-merge new default providers not yet in DB. A new alias of an existing
+    # vendor takes its key from that vendor's configured alias (the DB key can
+    # differ from the env default).
+    KEY_DONORS = {"gemini-lite": "gemini-flash"}
     added = []
     for pid, pconfig in _get_default_providers().items():
         if pid not in config.providers:
+            donor = config.providers.get(KEY_DONORS.get(pid, ""))
+            if donor and donor.api_key:
+                pconfig = pconfig.model_copy(update={"api_key": donor.api_key})
             config.providers[pid] = pconfig
             added.append(pid)
     if added:
