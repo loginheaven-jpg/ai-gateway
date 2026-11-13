@@ -294,6 +294,10 @@ while (true) {
 
 > **모든 `/api/settings/*` 경로는 관리자 토큰이 필요합니다.** 헤더 `X-Admin-Token`이 환경변수
 > `GATEWAY_ADMIN_TOKEN`과 같아야 하며, 틀리면 401, 서버에 토큰이 설정돼 있지 않으면 503입니다.
+>
+> 관리 화면 로그인에서 **이 기기에서 기억하기**를 선택하면 검증된 토큰을 해당 브라우저의
+> `localStorage`에 저장합니다. 선택하지 않으면 `sessionStorage`에 저장하여 현재 탭에서만 유지합니다.
+> **로그아웃 / 저장한 토큰 지우기**를 누르거나 서버가 401을 반환하면 두 저장소에서 토큰을 삭제합니다.
 > `/api/ai/health/providers`, `/api/ai/health/breaker/reset`, `/api/ai/batch-chat`도 같습니다.
 > 앱이 부르는 `/api/ai/chat`, `/chat/stream`, `/stt`, `/image`, `/image/edit`에는 필요 없습니다.
 > 설정은 서버 시작 시 DB에서 한 번 읽어 메모리에 둡니다. DB를 직접 고쳤다면 서비스를 재시작하십시오.

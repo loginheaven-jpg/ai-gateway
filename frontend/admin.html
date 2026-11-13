@@ -23,7 +23,10 @@
     <div class="header text-white py-4 mb-4">
         <div class="container">
             <h1 class="mb-0">AI Gateway Admin</h1>
-            <p class="mb-0 opacity-75">Centralized AI Provider Management</p>
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <p class="mb-0 opacity-75">Centralized AI Provider Management</p>
+                <button type="button" class="btn btn-sm btn-outline-light" id="admin-logout">로그아웃 / 저장한 토큰 지우기</button>
+            </div>
         </div>
     </div>
 
@@ -524,36 +527,130 @@
         </div>
     </div>
 
+    <div class="modal fade" id="admin-login-modal" tabindex="-1" aria-labelledby="admin-login-title" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <form class="modal-content" id="admin-login-form">
+                <div class="modal-header"><h5 class="modal-title" id="admin-login-title">관리자 로그인</h5></div>
+                <div class="modal-body">
+                    <label class="form-label" for="admin-token">관리자 토큰 (GATEWAY_ADMIN_TOKEN)</label>
+                    <input class="form-control" id="admin-token" type="password" autocomplete="current-password" required>
+                    <div class="form-check mt-3">
+                        <input class="form-check-input" type="checkbox" id="admin-remember">
+                        <label class="form-check-label" for="admin-remember">이 기기에서 기억하기</label>
+                    </div>
+                    <p class="small text-muted mt-2 mb-0">선택하면 이 브라우저에 토큰이 저장되어 다음 접속에도 사용됩니다. 공용 기기에서는 선택하지 마세요.</p>
+                    <p class="small text-muted mb-0">선택하지 않으면 현재 탭을 닫을 때까지만 기억합니다.</p>
+                    <div class="text-danger mt-2" id="admin-login-error" role="alert"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" id="admin-login-cancel">취소</button>
+                    <button type="submit" class="btn btn-primary" id="admin-login-submit">로그인</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         const API_BASE = window.location.origin;
         let editModal;
 
-        // Admin token: asked once per browser session, attached to every same-origin
-        // request as X-Admin-Token. A 401 clears it and asks again on the next call.
         const ADMIN_TOKEN_KEY = 'gatewayAdminToken';
-        let tokenPromptDeclined = false;  // cancelled once: stop asking until reload
-        function getAdminToken() {
-            let token = null;
-            try { token = sessionStorage.getItem(ADMIN_TOKEN_KEY); } catch (e) {}
-            if (!token && !tokenPromptDeclined) {
-                token = window.prompt('관리자 토큰(GATEWAY_ADMIN_TOKEN)을 입력하세요') || '';
-                if (!token) tokenPromptDeclined = true;
-                try { if (token) sessionStorage.setItem(ADMIN_TOKEN_KEY, token); } catch (e) {}
-            }
-            return token || '';
-        }
         const _nativeFetch = window.fetch.bind(window);
-        window.fetch = async (input, init = {}) => {
-            const url = typeof input === 'string' ? input : input.url;
-            if (!url.startsWith(API_BASE) && !url.startsWith('/')) {
-                return _nativeFetch(input, init);
+        let tokenPromptDeclined = false;
+        let loginPromise = null;
+        let activeAdminToken = null;
+        function clearAdminToken() {
+            activeAdminToken = null;
+            for (const name of ['localStorage', 'sessionStorage']) {
+                try { window[name].removeItem(ADMIN_TOKEN_KEY); } catch (e) {}
             }
-            const headers = new Headers(init.headers || {});
-            headers.set('X-Admin-Token', getAdminToken());
+        }
+        function readAdminToken() {
+            if (activeAdminToken) return activeAdminToken;
+            for (const name of ['localStorage', 'sessionStorage']) {
+                try {
+                    const token = window[name].getItem(ADMIN_TOKEN_KEY);
+                    if (token) return token;
+                } catch (e) {}
+            }
+            return '';
+        }
+        async function getAdminToken() {
+            const stored = readAdminToken();
+            if (stored) return stored;
+            if (tokenPromptDeclined) throw new Error('관리자 로그인이 취소되었습니다. 다시 로그인하려면 새로고침하세요.');
+            if (loginPromise) return loginPromise;
+            const modalElement = document.getElementById('admin-login-modal');
+            const modal = bootstrap.Modal.getOrCreateInstance(modalElement, { backdrop: 'static', keyboard: false });
+            const form = document.getElementById('admin-login-form');
+            const input = document.getElementById('admin-token');
+            const error = document.getElementById('admin-login-error');
+            const submit = document.getElementById('admin-login-submit');
+            const cancel = document.getElementById('admin-login-cancel');
+            error.textContent = '';
+            modalElement.addEventListener('shown.bs.modal', () => input.focus(), { once: true });
+            loginPromise = new Promise((resolve, reject) => {
+                const cleanup = () => {
+                    form.onsubmit = null;
+                    cancel.onclick = null;
+                    input.value = '';
+                    modal.hide();
+                };
+                cancel.onclick = () => {
+                    tokenPromptDeclined = true;
+                    cleanup();
+                    reject(new Error('관리자 로그인이 취소되었습니다.'));
+                };
+                form.onsubmit = async (event) => {
+                    event.preventDefault();
+                    const token = input.value;
+                    if (!token) return;
+                    submit.disabled = true;
+                    cancel.disabled = true;
+                    error.textContent = '';
+                    try {
+                        const response = await _nativeFetch(`${API_BASE}/api/settings/providers`, {
+                            headers: { 'X-Admin-Token': token }, cache: 'no-store'
+                        });
+                        if (!response.ok) {
+                            throw new Error(response.status === 401 ? '토큰이 올바르지 않습니다.' :
+                                response.status === 503 ? '서버의 관리자 토큰 또는 설정을 확인해주세요.' : '로그인 확인에 실패했습니다. 다시 시도해주세요.');
+                        }
+                        clearAdminToken();
+                        activeAdminToken = token;
+                        const remember = document.getElementById('admin-remember').checked;
+                        try {
+                            window[remember ? 'localStorage' : 'sessionStorage'].setItem(ADMIN_TOKEN_KEY, token);
+                        } catch (e) {
+                            window.alert('브라우저가 저장을 차단하여 이번 페이지에서만 로그인됩니다.');
+                        }
+                        cleanup();
+                        resolve(token);
+                    } catch (e) {
+                        error.textContent = e.message || '연결을 확인하고 다시 시도해주세요.';
+                    } finally {
+                        submit.disabled = false;
+                        cancel.disabled = false;
+                    }
+                };
+                modal.show();
+            }).finally(() => { loginPromise = null; });
+            return loginPromise;
+        }
+        document.getElementById('admin-logout').addEventListener('click', () => {
+            clearAdminToken();
+            window.location.reload();
+        });
+        window.fetch = async (input, init = {}) => {
+            const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url, API_BASE);
+            if (url.origin !== API_BASE) return _nativeFetch(input, init);
+            const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
+            const token = await getAdminToken();
+            headers.set('X-Admin-Token', token);
             const response = await _nativeFetch(input, { ...init, headers });
-            if (response.status === 401) {
-                try { sessionStorage.removeItem(ADMIN_TOKEN_KEY); } catch (e) {}
+            if (response.status === 401 && readAdminToken() === token) {
+                clearAdminToken();
             }
             return response;
         };
